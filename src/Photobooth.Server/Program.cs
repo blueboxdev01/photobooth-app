@@ -68,6 +68,27 @@ builder.Services
     .AddJsonProtocol(o =>
         o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
+// The operator's own settings, read before the options are finalised so a saved
+// watch folder is in force from the first frame rather than applied afterwards.
+var settingsStore = new SettingsStore(
+    ResolveAppPath("data/settings.json"),
+    LoggerFactory.Create(b => b.AddConsole()).CreateLogger<SettingsStore>());
+builder.Services.AddSingleton(settingsStore);
+
+builder.Services.PostConfigure<WatchFolderOptions>(o =>
+{
+    if (!string.IsNullOrWhiteSpace(settingsStore.Current.WatchFolder))
+    {
+        o.Path = settingsStore.Current.WatchFolder!;
+    }
+});
+builder.Services.PostConfigure<SessionSettings>(o =>
+{
+    o.CountdownSeconds = settingsStore.Current.CountdownSeconds ?? o.CountdownSeconds;
+    o.NoPhotoTimeoutSeconds =
+        settingsStore.Current.NoPhotoTimeoutSeconds ?? o.NoPhotoTimeoutSeconds;
+});
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<WatchFolderCamera>();
 builder.Services.AddSingleton<ICameraDevice>(sp => sp.GetRequiredService<WatchFolderCamera>());
@@ -90,6 +111,7 @@ app.UseStaticFiles();
 app.MapHub<SessionHub>("/hub/session");
 
 app.MapTemplateEndpoints();
+app.MapSettingsEndpoints();
 
 app.MapGet("/api/state", (WatchFolderCamera camera, SessionEngine engine) => Results.Ok(new
 {

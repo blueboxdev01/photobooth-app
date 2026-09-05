@@ -303,6 +303,60 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Can_be_pointed_at_a_different_folder_while_running()
+    {
+        // Nobody knows where EOS Utility saves until they look, so the operator
+        // must be able to re-point the app without restarting it.
+        Build();
+        await _camera.ConnectAsync();
+
+        var second = Path.Combine(_root, "watch-2");
+        Directory.CreateDirectory(second);
+        await _camera.ChangeFolderAsync(second);
+
+        Assert.Equal(Path.GetFullPath(second), _camera.WatchFolderPath);
+
+        File.Copy(
+            Path.Combine(SampleDir, "sample-1.jpg"),
+            Path.Combine(second, "IMG_0001.JPG"));
+
+        Assert.True(await WaitForPhotosAsync(1),
+            $"nothing was picked up from the new folder; saw {AcceptedCount}");
+    }
+
+    [Fact]
+    public async Task Photos_in_the_old_folder_are_left_behind_after_a_change()
+    {
+        Build();
+        await _camera.ConnectAsync();
+
+        var second = Path.Combine(_root, "watch-2");
+        Directory.CreateDirectory(second);
+        await _camera.ChangeFolderAsync(second);
+
+        // Dropped into the folder we are no longer watching.
+        File.Copy(
+            Path.Combine(SampleDir, "sample-1.jpg"),
+            Path.Combine(WatchDir, "IMG_0001.JPG"));
+
+        Assert.True(await StaysAtAsync(() => AcceptedCount, 0, 1500),
+            "a photo from the previous folder leaked in after the change");
+    }
+
+    [Fact]
+    public async Task Changing_to_the_same_folder_keeps_working()
+    {
+        Build();
+        await _camera.ConnectAsync();
+
+        await _camera.ChangeFolderAsync(WatchDir);
+
+        await _mock.SimulatePressAsync();
+        Assert.True(await WaitForPhotosAsync(1),
+            $"the watcher stopped after a no-op change; saw {AcceptedCount}");
+    }
+
+    [Fact]
     public async Task Finds_a_photo_the_file_watcher_never_reported()
     {
         // FileSystemWatcher drops events under load. The file is written before

@@ -23,7 +23,7 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M7 Google Drive delivery + QR | not started |
 | M8 Frame upload + slot editor | done — `/templates` |
 
-60 tests passing. Nothing has yet been verified against a real camera.
+63 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
 and a `session.json` describing them. From M7 the Drive folder receives a copy of
@@ -61,7 +61,7 @@ Then open:
 | <http://localhost:5000/operator> | controls — on your laptop |
 | <http://localhost:5000/display> | guest screen — fullscreen on the monitor |
 | <http://localhost:5000/templates> | frame upload and the slot editor |
-| <http://localhost:5000/diagnostics> | what the app is seeing |
+| <http://localhost:5000/diagnostics> | booth setup, and what the app is seeing |
 
 With no camera attached, the operator page can simulate the shutter. The mock is
 deliberately adversarial — it writes slowly in chunks and can reproduce a stale
@@ -79,6 +79,18 @@ what it rejected and why, and exactly which commit produced the answer.
 `data/` and `templates/` live **next to the .exe**, so when you unzip a new
 release, copy both across from the old folder. `data/` holds every past session;
 `templates/` holds any frame you made in the editor.
+
+## Setting the watch folder
+
+The one thing that must be right before anything works is **where EOS Utility
+saves**. Set it on the diagnostics page under **Setup** — paste the path from EOS
+Utility's own save-location setting, press *Check folder* to confirm it is
+usable, then *Save and apply*. It takes effect immediately, with no restart, and
+is written to `data/settings.json` so it survives one.
+
+The countdown and no-photo timeout live there too. The timeout in particular is
+a guess until someone measures the real press-to-file latency, which the same
+page can do.
 
 ## Configuration
 

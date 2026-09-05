@@ -72,6 +72,9 @@ public sealed class WatchFolderCamera : ICameraDevice
     /// </summary>
     public DateTimeOffset AcceptFrom { get; set; } = DateTimeOffset.MinValue;
 
+    // Read through the shared options instance rather than a private copy, so
+    // everything that resolves the watch folder -- notably MockEosUtility, which
+    // writes into it -- follows a change made here.
     public string WatchFolderPath => System.IO.Path.GetFullPath(_options.Path);
 
     public event EventHandler<PhotoArrivedEventArgs>? PhotoArrived;
@@ -125,6 +128,42 @@ public sealed class WatchFolderCamera : ICameraDevice
             folder, string.Join(", ", _options.Extensions));
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Point the camera at a different folder without restarting the app.
+    ///
+    /// Needed because nobody knows where EOS Utility saves until they look, and
+    /// making an operator edit JSON and restart to find out is a poor way to
+    /// spend the first ten minutes of a field test.
+    /// </summary>
+    public async Task ChangeFolderAsync(string folder, CancellationToken cancellationToken = default)
+    {
+        var resolved = System.IO.Path.GetFullPath(folder);
+        if (string.Equals(resolved, WatchFolderPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var wasRunning = _cts is not null;
+        await StopAsync().ConfigureAwait(false);
+
+        _options.Path = resolved;
+
+        // A different folder means a different set of files: anything remembered
+        // about the old one would be wrong here.
+        _seen.Clear();
+        _attempts.Clear();
+        _abandoned.Clear();
+        _ignoredByExtension.Clear();
+        _inFlight.Clear();
+
+        _logger.LogInformation("Watch folder changed to {Folder}.", resolved);
+
+        if (wasRunning)
+        {
+            await ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>No-op: the shutter is fired by a physical remote, not by us.</summary>
@@ -448,7 +487,9 @@ public sealed class WatchFolderCamera : ICameraDevice
         StatusChanged?.Invoke(this, new CameraStatusEventArgs(status, message));
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(StopAsync());
+
+    private async Task StopAsync()
     {
         if (_cts is null)
         {
@@ -456,7 +497,6 @@ public sealed class WatchFolderCamera : ICameraDevice
         }
 
         await _cts.CancelAsync().ConfigureAwait(false);
-        _candidates.Writer.TryComplete();
 
         if (_watcher is not null)
         {
@@ -482,8 +522,17 @@ public sealed class WatchFolderCamera : ICameraDevice
             }
         }
 
+        // Drain rather than complete the channel: it has to stay usable, because
+        // stopping is now also how a folder change happens. Anything still queued
+        // refers to the folder we are leaving.
+        while (_candidates.Reader.TryRead(out _))
+        {
+        }
+
         _cts.Dispose();
         _cts = null;
+        _processor = null;
+        _sweeper = null;
         SetStatus(CameraStatus.Disconnected, null);
     }
 }

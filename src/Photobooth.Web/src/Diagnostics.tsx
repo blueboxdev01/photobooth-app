@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Settings } from './Settings'
 import { useWebcams } from './useWebcams'
 
 interface IngestRow {
@@ -74,6 +75,8 @@ export function Diagnostics() {
         <span className={`pill pill--${d.camera.status}`}>Camera {d.camera.status}</span>
         <a href="/operator">← operator</a>
       </header>
+
+      <Settings onChanged={() => void load()} />
 
       <section>
         <h2>Cameras</h2>

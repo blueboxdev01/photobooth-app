@@ -246,3 +246,28 @@ a.button {
 .slotlist li.active { border-color: var(--guide); background: #23262c; }
 .slotlist li code { flex: 1; }
 .slotlist button { padding: 2px 8px; }
+
+/* ---------- booth setup ---------- */
+
+.settings { margin-bottom: 26px; }
+.settings h2 {
+  font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+  padding-bottom: 5px; margin-bottom: 12px;
+}
+.settings label { display: block; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.settings input {
+  font: inherit; margin-top: 4px; padding: 7px 10px;
+  background: #232830; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+/* The watch folder is a long absolute path; give it the room. */
+.settings__folder input { width: 100%; font-family: Consolas, ui-monospace, monospace; }
+.settings .fields { display: flex; gap: 14px; max-width: 420px; }
+.settings .fields input { width: 110px; }
+
+button.linkish {
+  background: none; border: none; padding: 0 8px 0 0;
+  color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline;
+}
+button.linkish:hover { background: none; color: #9ccbff; }
