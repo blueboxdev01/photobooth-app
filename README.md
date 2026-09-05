@@ -11,7 +11,10 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 
 ## Status
 
-M1 complete: skeleton, watch-folder ingest, and an adversarial EOS Utility mock.
+M1-M3 complete: watch-folder ingest (hardened, 11 tests), the session engine and
+two-window flow over SignalR (21 tests), and a webcam posing mirror.
+
+Next: M5, the field-test build your colleague runs against the real camera.
 
 ## Running it
 

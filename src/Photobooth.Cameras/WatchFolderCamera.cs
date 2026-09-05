@@ -34,6 +34,15 @@ public sealed class WatchFolderCamera : ICameraDevice
     private readonly ConcurrentDictionary<string, byte> _inFlight =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Files that would not settle, and how many times we tried.
+    private readonly ConcurrentDictionary<string, int> _attempts =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // Given up on. Never offered again, so one stuck file cannot consume ingest
+    // for the rest of the event.
+    private readonly ConcurrentDictionary<string, byte> _abandoned =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _cts;
     private Task? _processor;
@@ -112,18 +121,27 @@ public sealed class WatchFolderCamera : ICameraDevice
     public Task RequestCaptureAsync(CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    /// <summary>Forget accepted files, so a fresh session starts clean.</summary>
-    public void ResetSeen() => _seen.Clear();
+    /// <summary>Forget accepted and abandoned files, so a fresh session starts clean.</summary>
+    public void ResetSeen()
+    {
+        _seen.Clear();
+        _attempts.Clear();
+        _abandoned.Clear();
+    }
 
-    // Known limitation, to settle in M3: candidates are processed one at a time to
-    // preserve capture order, so a stalled transfer delays photos queued behind it
-    // by up to CompletionTimeoutMilliseconds. The alternative is bounded
-    // concurrency plus sorting by write time; deferred until the field test shows
-    // whether stalled transfers actually happen.
+    /// <summary>Files given up on. Surfaced on the diagnostics page in M5.</summary>
+    public IReadOnlyCollection<string> AbandonedFiles => _abandoned.Keys.ToList();
+
+    // Candidates are examined one at a time so photos reach the strip in capture
+    // order. That means a file which will not settle delays anything queued
+    // behind it by up to CompletionTimeoutMilliseconds -- accepted deliberately,
+    // because the realistic cause is a broken tether, in which case there is
+    // nothing behind it anyway. What is *not* acceptable is retrying such a file
+    // forever, so attempts are capped and the file is then abandoned.
 
     private void Offer(string path)
     {
-        if (!HasWatchedExtension(path) || _seen.ContainsKey(path))
+        if (!HasWatchedExtension(path) || _seen.ContainsKey(path) || _abandoned.ContainsKey(path))
         {
             return;
         }
@@ -215,10 +233,11 @@ public sealed class WatchFolderCamera : ICameraDevice
         var info = await WaitUntilCompleteAsync(path, token).ConfigureAwait(false);
         if (info is null)
         {
-            _logger.LogWarning("Ignoring {File}: never finished being written.",
-                System.IO.Path.GetFileName(path));
+            RecordFailedAttempt(path);
             return;
         }
+
+        _attempts.TryRemove(path, out _);
 
         if (info.Length < _options.MinimumFileSizeBytes)
         {
@@ -245,7 +264,35 @@ public sealed class WatchFolderCamera : ICameraDevice
 
         var photo = new CapturedPhoto(info.FullName, info.Name, info.Length, _time.GetUtcNow());
         _logger.LogInformation("Accepted {File} ({Size} KB)", info.Name, info.Length / 1024);
+
+        if (Status == CameraStatus.Faulted)
+        {
+            // A photo arriving proves the source recovered.
+            SetStatus(CameraStatus.Ready, "Watching " + WatchFolderPath);
+        }
+
         PhotoArrived?.Invoke(this, new PhotoArrivedEventArgs(photo));
+    }
+
+    private void RecordFailedAttempt(string path)
+    {
+        var name = System.IO.Path.GetFileName(path);
+        var attempts = _attempts.AddOrUpdate(path, 1, (_, n) => n + 1);
+
+        if (attempts < _options.MaxCompletionAttempts)
+        {
+            _logger.LogWarning(
+                "{File} has not finished being written (attempt {Attempt} of {Max}).",
+                name, attempts, _options.MaxCompletionAttempts);
+            return;
+        }
+
+        _abandoned.TryAdd(path, 0);
+        _logger.LogError(
+            "Gave up on {File} after {Attempts} attempts; it never became readable. " +
+            "Check the tether and EOS Utility.", name, attempts);
+        SetStatus(CameraStatus.Faulted,
+            $"Gave up on {name}: the file never finished transferring.");
     }
 
     /// <summary>

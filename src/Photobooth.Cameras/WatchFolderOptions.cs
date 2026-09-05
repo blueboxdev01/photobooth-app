@@ -45,4 +45,16 @@ public sealed class WatchFolderOptions
 
     /// <summary>Ignore zero-byte files; they are never a finished photo.</summary>
     public long MinimumFileSizeBytes { get; set; } = 1024;
+
+    /// <summary>
+    /// How many times to re-examine a file that will not settle before giving up
+    /// on it for good.
+    ///
+    /// Without a limit, the periodic sweep keeps re-offering a permanently stuck
+    /// file and ingest spends the rest of the event timing out on it -- so a
+    /// single bad transfer would quietly stop every later photo. Abandoning it
+    /// bounds the damage to one timeout and puts the camera into a faulted state
+    /// the operator can actually see.
+    /// </summary>
+    public int MaxCompletionAttempts { get; set; } = 3;
 }

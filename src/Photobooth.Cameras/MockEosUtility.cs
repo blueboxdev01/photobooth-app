@@ -39,6 +39,12 @@ public sealed class MockEosUtilityOptions
 
     /// <summary>Pause between chunks, imitating transfer over a USB 2.0 link.</summary>
     public int ChunkDelayMilliseconds { get; set; } = 25;
+
+    /// <summary>
+    /// How long NeverFinishes holds its handle open. Must outlast the ingest
+    /// completion timeout for the stall to be reproduced; tests shorten it.
+    /// </summary>
+    public int StallSeconds { get; set; } = 25;
 }
 
 /// <summary>
@@ -55,9 +61,6 @@ public sealed class MockEosUtility
     private readonly MockEosUtilityOptions _options;
     private readonly WatchFolderOptions _watchOptions;
     private readonly ILogger<MockEosUtility> _logger;
-
-    /// <summary>Longer than any sane ingest completion timeout.</summary>
-    private static readonly TimeSpan StallDuration = TimeSpan.FromSeconds(25);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _nextIndex;
@@ -168,7 +171,8 @@ public sealed class MockEosUtility
             {
                 await stream.WriteAsync(bytes.AsMemory(0, bytes.Length / 2)).ConfigureAwait(false);
                 await stream.FlushAsync().ConfigureAwait(false);
-                await Task.Delay(StallDuration).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(_options.StallSeconds))
+                    .ConfigureAwait(false);
             }
 
             File.Delete(target);
