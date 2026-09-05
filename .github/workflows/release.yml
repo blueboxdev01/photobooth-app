@@ -64,8 +64,11 @@ jobs:
             Write-Host "$dir has $count file(s)"
           }
 
-          $exe = Start-Process -PassThru -WorkingDirectory artifacts/publish `
-                               -FilePath ./Photobooth.Server.exe
+          # -FilePath resolves against the *current* directory, not
+          # -WorkingDirectory, so both need to be absolute.
+          $publish = (Resolve-Path artifacts/publish).Path
+          $exe = Start-Process -PassThru -WorkingDirectory $publish `
+                               -FilePath (Join-Path $publish 'Photobooth.Server.exe')
           try {
             $ready = $false
             foreach ($i in 1..40) {
@@ -101,7 +104,7 @@ jobs:
             # The smoke test just created data/ with a photo and a log in it.
             # Shipping that inside the release would put a test image -- and a
             # precedent for shipping a data folder -- into every download.
-            Remove-Item artifacts/publish/data -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $publish 'data') -Recurse -Force -ErrorAction SilentlyContinue
           }
 
       - name: Package
