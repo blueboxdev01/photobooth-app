@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Photobooth.Core\Photobooth.Core.csproj" />
+    <ProjectReference Include="..\Photobooth.Cameras\Photobooth.Cameras.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- Sample photos for MockEosUtility. Copied next to the app so a published
+       build can run a full mock session on a machine with no camera. -->
+  <ItemGroup>
+    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

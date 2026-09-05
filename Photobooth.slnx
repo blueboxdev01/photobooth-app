@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Photobooth.Cameras/Photobooth.Cameras.csproj" />
+    <Project Path="src/Photobooth.Core/Photobooth.Core.csproj" />
+    <Project Path="src/Photobooth.Server/Photobooth.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Photobooth.Cameras.Tests/Photobooth.Cameras.Tests.csproj" />
+    <Project Path="tests/Photobooth.Core.Tests/Photobooth.Core.Tests.csproj" />
+  </Folder>
+</Solution>

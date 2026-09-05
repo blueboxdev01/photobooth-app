@@ -1,0 +1,37 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+artifacts/
+*.user
+*.suo
+
+# Frontend
+node_modules/
+dist/
+src/Photobooth.Server/wwwroot/
+
+# Runtime data -- guest photos, session archive, database, OAuth token store.
+# Never commit anything under here.
+data/
+
+# Local configuration and secrets. Only appsettings.example.json is tracked.
+appsettings.Local.json
+appsettings.*.Local.json
+*.client_secret.json
+client_secret*.json
+token.json
+*.token
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
