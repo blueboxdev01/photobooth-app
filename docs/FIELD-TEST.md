@@ -30,9 +30,13 @@ it.
 3. On the camera: `Settings → USB Connection App → Photo Import/Remote Control`.
    Set manual exposure, **manual white balance** (not AWB), fixed ISO,
    **JPEG only** (not RAW), auto power-off disabled.
-4. Start EOS Utility, choose remote shooting, and set its save folder to the
-   **watch folder** shown on the diagnostics page.
-5. On `/diagnostics`, pick your webcam under **Cameras → Preview**.
+4. Start EOS Utility and choose remote shooting. Note the folder it saves to.
+5. On `/diagnostics` under **Setup**, paste that folder into **Watch folder**,
+   press **Check folder**, then **Save and apply**. It takes effect immediately.
+6. Still on `/diagnostics`, pick your webcam under **Cameras → Preview**.
+
+> You no longer need to make EOS Utility save anywhere in particular — point the
+> app at wherever it already saves.
 
 > **Nothing uploads anywhere.** Google Drive is not in this build. Photos stay in
 > the `data` folder next to the .exe.
@@ -71,6 +75,7 @@ names under **Watch folder**.
 ## Test 3 — How long from pressing the remote to the file appearing?
 
 We guessed and set a 20-second timeout. Only you can measure the real number.
+Once you have it, set the timeout under **Setup** on the same page.
 
 1. On `/diagnostics`, hit **Mark shutter press** at the same moment you press the
    remote.
@@ -111,7 +116,21 @@ photo on the strip. For each, note what the operator screen said.
 
 ---
 
-## Test 6 — Framing and crop *(shapes the strip design)*
+## Test 6 — The strip
+
+Accept a session and look at the composited 2×6 strip.
+
+- [ ] Three photos, right order, right way up
+- [ ] The strip is saved to `data/sessions/<name>/` with the raw photos and a
+      `session.json` beside it
+- [ ] The originals are **still** in the watch folder, untouched
+
+If the layout is wrong, `/templates` lets you drag the slots and re-render
+without touching any code. Tell us what you changed.
+
+---
+
+## Test 7 — Framing and crop *(shapes the strip design)*
 
 The strip's photo slots are **4:3**, but the R50 shoots **3:2**, so the sides get
 cropped. The dashed yellow box on the guest screen marks what survives — but it
@@ -127,7 +146,7 @@ lens rather than on its axis.
 
 ---
 
-## Test 7 — Both cameras at once
+## Test 8 — Both cameras at once
 
 - [ ] Webcam preview runs while the R50 is tethered and shooting
 - [ ] Picking a different webcam on `/diagnostics` changes the mirror
