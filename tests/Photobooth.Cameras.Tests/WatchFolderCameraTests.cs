@@ -94,7 +94,10 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
 
     private List<CapturedPhoto> Accepted { get { lock (_accepted) { return [.. _accepted]; } } }
 
-    private async Task<bool> WaitForPhotosAsync(int count, int timeoutMs = 6000)
+    // Generous on purpose. These tests assert an outcome, not a deadline, and a
+    // loaded CI runner is far slower than a developer machine -- a tight bound
+    // here buys nothing and produces flakes that erode trust in the suite.
+    private async Task<bool> WaitForPhotosAsync(int count, int timeoutMs = 20_000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)
@@ -126,7 +129,7 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
 
         var written = await _mock.SimulatePressAsync();
 
-        Assert.True(await WaitForPhotosAsync(1), "no photo was accepted");
+        Assert.True(await WaitForPhotosAsync(1), $"no photo accepted; saw {AcceptedCount}");
         var photo = Accepted.Single();
         Assert.Equal(Path.GetFileName(written), photo.FileName);
 
@@ -150,7 +153,8 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
         await press;
 
         Assert.True(stayedEmpty, "a partially written file was accepted");
-        Assert.True(await WaitForPhotosAsync(1), "the completed file was never accepted");
+        Assert.True(await WaitForPhotosAsync(1),
+            $"the completed file was never accepted; saw {AcceptedCount}");
     }
 
     [Fact]
@@ -272,7 +276,9 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
 
         await _mock.SimulatePressAsync();
 
-        Assert.True(await WaitForPhotosAsync(1));
+        Assert.True(await WaitForPhotosAsync(1),
+            $"the healthy photo never arrived; accepted {AcceptedCount}, " +
+            $"camera {_camera.Status}, abandoned {_camera.AbandonedFiles.Count}");
         Assert.Equal(CameraStatus.Ready, _camera.Status);
     }
 
@@ -289,6 +295,6 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
         await _camera.ConnectAsync();
 
         Assert.True(await WaitForPhotosAsync(1),
-            "the sweep did not recover a file the watcher missed");
+            $"the sweep did not recover a file the watcher missed; saw {AcceptedCount}");
     }
 }
