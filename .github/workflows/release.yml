@@ -58,7 +58,7 @@ jobs:
       - name: Smoke test the published build
         shell: pwsh
         run: |
-          foreach ($dir in 'samples', 'wwwroot') {
+          foreach ($dir in 'samples', 'wwwroot', 'templates') {
             $count = (Get-ChildItem "artifacts/publish/$dir" -File -Recurse).Count
             if ($count -eq 0) { throw "artifacts/publish/$dir is empty" }
             Write-Host "$dir has $count file(s)"
@@ -91,6 +91,14 @@ jobs:
             $accepted = @($diag.ingest | Where-Object { $_.outcome -eq 'Accepted' })
             if ($accepted.Count -eq 0) { throw "the photo was never ingested" }
             Write-Host "ingested OK: $($accepted[0].fileName)"
+
+            # The built-in fallback shares the real template's name and size, so a
+            # missing templates folder looks completely fine except for the absent
+            # frame art. Assert the file on disk is what got loaded.
+            if ($diag.assumptions.usingBuiltInFallback) {
+              throw "template fell back to the built-in layout: $($diag.assumptions.templateSource)"
+            }
+            Write-Host "template loaded from $($diag.assumptions.templateSource)"
 
             foreach ($page in '/operator', '/display', '/diagnostics') {
               $r = Invoke-WebRequest "http://localhost:5000$page" -TimeoutSec 5

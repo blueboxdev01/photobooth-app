@@ -2,10 +2,13 @@
   <Folder Name="/src/">
     <Project Path="src/Photobooth.Cameras/Photobooth.Cameras.csproj" />
     <Project Path="src/Photobooth.Core/Photobooth.Core.csproj" />
+    <Project Path="src/Photobooth.Delivery/Photobooth.Delivery.csproj" />
+    <Project Path="src/Photobooth.Imaging/Photobooth.Imaging.csproj" />
     <Project Path="src/Photobooth.Server/Photobooth.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Photobooth.Cameras.Tests/Photobooth.Cameras.Tests.csproj" />
     <Project Path="tests/Photobooth.Core.Tests/Photobooth.Core.Tests.csproj" />
+    <Project Path="tests/Photobooth.Imaging.Tests/Photobooth.Imaging.Tests.csproj" />
   </Folder>
 </Solution>

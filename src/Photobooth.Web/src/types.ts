@@ -27,6 +27,9 @@ export interface SessionSnapshot {
   message: string | null
   capturedCount: number
   currentShot: number
+  /** Set once the strip is composed and archived. */
+  stripUrl: string | null
+  sessionFolder: string | null
 }
 
 export interface CameraInfo {

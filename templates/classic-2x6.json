@@ -1,0 +1,11 @@
+{
+  "name": "Classic 2x6",
+  "canvas": { "width": 600, "height": 1800, "dpi": 300 },
+  "background": "#FFFFFF",
+  "overlay": "classic-2x6.png",
+  "slots": [
+    { "x": 0.0333, "y": 0.0167, "w": 0.9333, "h": 0.2333, "fit": "Cover" },
+    { "x": 0.0333, "y": 0.2667, "w": 0.9333, "h": 0.2333, "fit": "Cover" },
+    { "x": 0.0333, "y": 0.5167, "w": 0.9333, "h": 0.2333, "fit": "Cover" }
+  ]
+}

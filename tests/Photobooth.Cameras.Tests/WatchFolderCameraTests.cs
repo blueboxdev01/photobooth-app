@@ -235,6 +235,26 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_slow_transfer_is_not_mistaken_for_a_stuck_one()
+    {
+        // 240 KB in 16 KB chunks at 120 ms is about 1.8 s of writing, far longer
+        // than the 300 ms completion timeout -- so several attempts will fail
+        // before the file is ready. None of them should count against it, because
+        // it is growing the whole time. Counting them would abandon a real photo
+        // for arriving slowly, which is what a large JPEG over a slow USB link
+        // does routinely.
+        Build(completionTimeoutMs: 300, maxAttempts: 2, chunkDelayMs: 120);
+        await _camera.ConnectAsync();
+
+        await _mock.SimulatePressAsync();
+
+        Assert.True(await WaitForPhotosAsync(1),
+            $"a slow but healthy transfer was dropped; abandoned {_camera.AbandonedFiles.Count}");
+        Assert.Empty(_camera.AbandonedFiles);
+        Assert.Equal(CameraStatus.Ready, _camera.Status);
+    }
+
+    [Fact]
     public async Task Gives_up_on_a_stuck_file_and_reports_the_fault()
     {
         // Without a cap, the periodic sweep would re-offer this file forever and

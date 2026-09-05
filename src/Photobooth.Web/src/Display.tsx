@@ -33,12 +33,25 @@ export function Display() {
     )
   }
 
-  if (!MIRROR_STATES.includes(state)) {
+  if (state === 'Composing') {
     return (
       <div className="stage">
-        <h1>All done</h1>
-        <p className="muted">Your photos are on their way.</p>
+        <h1>Making your strip…</h1>
         <Filmstrip snapshot={snapshot} />
+      </div>
+    )
+  }
+
+  if (!MIRROR_STATES.includes(state)) {
+    return (
+      <div className="stage stage--done">
+        <h1>All done</h1>
+        {snapshot.stripUrl ? (
+          <img className="strip" src={snapshot.stripUrl} alt="Your photo strip" />
+        ) : (
+          <Filmstrip snapshot={snapshot} />
+        )}
+        <p className="muted">Your QR code will appear here.</p>
       </div>
     )
   }

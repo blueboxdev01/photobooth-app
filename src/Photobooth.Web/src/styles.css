@@ -166,3 +166,21 @@ a.button {
 }
 .good { color: var(--good); }
 .bad { color: var(--bad); }
+
+/* ---------- the finished strip ---------- */
+
+.strip {
+  /* 2x6 inches: tall and narrow, so height is the constraint on any screen. */
+  height: min(72vh, 900px);
+  width: auto;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+}
+.stage--done { gap: 16px; }
+.result {
+  display: flex; gap: 20px; align-items: flex-start;
+  padding: 16px; margin-bottom: 20px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+}
+.result .strip { height: 260px; box-shadow: none; }

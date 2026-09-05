@@ -82,6 +82,22 @@ export function Operator() {
         {state === 'Idle' && <>Ready for the next guest.</>}
       </p>
 
+      {snapshot.stripUrl && (
+        <section className="result">
+          <img className="strip" src={snapshot.stripUrl} alt="Composed strip" />
+          <div>
+            <h2>Strip ready</h2>
+            <p className="muted small">
+              Archived to <code>{snapshot.sessionFolder}</code> alongside the raw
+              photos and <code>session.json</code>.
+            </p>
+            <a className="button" href={snapshot.stripUrl} target="_blank" rel="noreferrer">
+              Open full size
+            </a>
+          </div>
+        </section>
+      )}
+
       <section className="shots">
         {snapshot.photos.map((p) => (
           <figure key={p.fileName}>

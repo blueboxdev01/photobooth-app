@@ -2,6 +2,8 @@ using System.Text.Json.Serialization;
 using Serilog;
 using Photobooth.Cameras;
 using Photobooth.Core;
+using Photobooth.Delivery;
+using Photobooth.Imaging;
 using Photobooth.Server;
 
 // ContentRoot must be the app folder, not the shell's working directory.
@@ -20,6 +22,10 @@ builder.Services.Configure<MockEosUtilityOptions>(
     builder.Configuration.GetSection(MockEosUtilityOptions.SectionName));
 builder.Services.Configure<SessionSettings>(
     builder.Configuration.GetSection(SessionSettings.SectionName));
+builder.Services.Configure<TemplateOptions>(
+    builder.Configuration.GetSection(TemplateOptions.SectionName));
+builder.Services.Configure<ArchiveOptions>(
+    builder.Configuration.GetSection(ArchiveOptions.SectionName));
 
 // Relative paths resolve against the app folder rather than whatever directory
 // the shell happened to be in, so `dotnet run` and an unzipped published build
@@ -33,6 +39,8 @@ builder.Services.PostConfigure<WatchFolderOptions>(o =>
 });
 builder.Services.PostConfigure<MockEosUtilityOptions>(
     o => o.SourceFolder = ResolveAppPath(o.SourceFolder));
+builder.Services.PostConfigure<TemplateOptions>(o => o.Folder = ResolveAppPath(o.Folder));
+builder.Services.PostConfigure<ArchiveOptions>(o => o.Folder = ResolveAppPath(o.Folder));
 
 static string ResolveAppPath(string path) => Path.IsPathRooted(path)
     ? path
@@ -64,6 +72,11 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<WatchFolderCamera>();
 builder.Services.AddSingleton<ICameraDevice>(sp => sp.GetRequiredService<WatchFolderCamera>());
 builder.Services.AddSingleton<MockEosUtility>();
+builder.Services.AddSingleton<FileTemplateProvider>();
+builder.Services.AddSingleton<ITemplateProvider>(
+    sp => sp.GetRequiredService<FileTemplateProvider>());
+builder.Services.AddSingleton<StripCompositor>();
+builder.Services.AddSingleton<SessionArchive>();
 builder.Services.AddSingleton<SessionEngine>();
 builder.Services.AddSingleton<DiagnosticsService>();
 builder.Services.AddSingleton<SessionCoordinator>();
@@ -134,6 +147,47 @@ app.MapPost("/api/mock/press", async (
         return Results.BadRequest(new { error = ex.Message });
     }
 });
+
+// Serves a file out of an archived session folder: the strip, or a raw photo.
+// Both segments are constrained to a single path element so a crafted name
+// cannot walk out of the archive.
+app.MapGet("/api/sessions/{folder}/{file}", (string folder, string file, SessionArchive archive) =>
+{
+    if (!IsSafeSegment(folder) || !IsSafeSegment(file))
+    {
+        return Results.BadRequest();
+    }
+
+    var full = Path.Combine(archive.Root, folder, file);
+    if (!File.Exists(full))
+    {
+        return Results.NotFound();
+    }
+
+    var type = Path.GetExtension(full).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".json" => "application/json",
+        _ => "application/octet-stream",
+    };
+
+    return Results.File(full, type);
+});
+
+app.MapGet("/api/sessions", (SessionArchive archive) => Results.Ok(new
+{
+    root = archive.Root,
+    freeDiskBytes = archive.FreeDiskBytes(),
+    diskIsLow = archive.DiskIsLow(),
+    sessions = archive.All().Take(50),
+}));
+
+static bool IsSafeSegment(string value) =>
+    !string.IsNullOrWhiteSpace(value)
+    && value.IndexOfAny(['/', '\\']) < 0
+    && !value.Contains("..")
+    && value == Path.GetFileName(value);
 
 // Serves a photo out of the watch folder. File name only -- no paths -- so a
 // crafted name cannot walk out of the folder.

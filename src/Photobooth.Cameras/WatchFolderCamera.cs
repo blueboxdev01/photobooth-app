@@ -265,10 +265,13 @@ public sealed class WatchFolderCamera : ICameraDevice
             return;
         }
 
+        // Measured before and after so a failure can tell a stuck transfer from a
+        // merely slow one.
+        var sizeBefore = CurrentLength(path);
         var info = await WaitUntilCompleteAsync(path, token).ConfigureAwait(false);
         if (info is null)
         {
-            RecordFailedAttempt(path);
+            RecordFailedAttempt(path, sizeBefore, CurrentLength(path));
             return;
         }
 
@@ -316,16 +319,44 @@ public sealed class WatchFolderCamera : ICameraDevice
         PhotoArrived?.Invoke(this, new PhotoArrivedEventArgs(photo));
     }
 
-    private void RecordFailedAttempt(string path)
+    private static long CurrentLength(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? info.Length : -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private void RecordFailedAttempt(string path, long sizeBefore, long sizeAfter)
     {
         var name = System.IO.Path.GetFileName(path);
+
+        // A file that grew while we watched it is transferring, not stuck. Counting
+        // that as a failure would abandon a perfectly good photo for the crime of
+        // arriving slowly -- which is exactly what a large JPEG over a slow USB
+        // link does. Only a file that made no progress at all counts against the
+        // attempt limit.
+        if (sizeAfter > sizeBefore)
+        {
+            _attempts.TryRemove(path, out _);
+            _logger.LogDebug(
+                "{File} is still growing ({Before} -> {After} bytes); will look again.",
+                name, sizeBefore, sizeAfter);
+            return;
+        }
+
         var attempts = _attempts.AddOrUpdate(path, 1, (_, n) => n + 1);
 
         if (attempts < _options.MaxCompletionAttempts)
         {
             _logger.LogWarning(
-                "{File} has not finished being written (attempt {Attempt} of {Max}).",
-                name, attempts, _options.MaxCompletionAttempts);
+                "{File} made no progress at {Size} bytes (attempt {Attempt} of {Max}).",
+                name, sizeAfter, attempts, _options.MaxCompletionAttempts);
             Report(path, IngestOutcome.Rejected,
                 $"still being written (attempt {attempts} of {_options.MaxCompletionAttempts})");
             return;
@@ -333,8 +364,9 @@ public sealed class WatchFolderCamera : ICameraDevice
 
         _abandoned.TryAdd(path, 0);
         _logger.LogError(
-            "Gave up on {File} after {Attempts} attempts; it never became readable. " +
-            "Check the tether and EOS Utility.", name, attempts);
+            "Gave up on {File} after {Attempts} attempts with no progress at {Size} " +
+            "bytes; it never became readable. Check the tether and EOS Utility.",
+            name, attempts, sizeAfter);
         Report(path, IngestOutcome.Abandoned,
             $"never became readable after {attempts} attempts");
         SetStatus(CameraStatus.Faulted,

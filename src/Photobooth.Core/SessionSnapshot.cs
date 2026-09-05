@@ -14,7 +14,9 @@ public sealed record SessionSnapshot(
     DateTimeOffset? CountdownEndsUtc,
     DateTimeOffset? TimeoutAtUtc,
     DateTimeOffset? StartedUtc,
-    string? Message)
+    string? Message,
+    string? StripUrl = null,
+    string? SessionFolder = null)
 {
     public int CapturedCount => Photos.Count;
 

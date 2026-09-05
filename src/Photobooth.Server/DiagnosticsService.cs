@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.Options;
 using Photobooth.Cameras;
 using Photobooth.Core;
+using Photobooth.Imaging;
 
 namespace Photobooth.Server;
 
@@ -27,6 +28,7 @@ public sealed class DiagnosticsService
     private readonly WatchFolderOptions _watchOptions;
     private readonly MockEosUtilityOptions _mockOptions;
     private readonly SessionSettings _sessionOptions;
+    private readonly ITemplateProvider _templates;
     private readonly WatchFolderCamera _camera;
 
     private readonly ConcurrentQueue<IngestEvent> _events = new();
@@ -40,11 +42,13 @@ public sealed class DiagnosticsService
         IOptions<WatchFolderOptions> watchOptions,
         IOptions<MockEosUtilityOptions> mockOptions,
         IOptions<SessionSettings> sessionOptions,
+        ITemplateProvider templates,
         WatchFolderCamera camera)
     {
         _watchOptions = watchOptions.Value;
         _mockOptions = mockOptions.Value;
         _sessionOptions = sessionOptions.Value;
+        _templates = templates;
         _camera = camera;
     }
 
@@ -163,7 +167,12 @@ public sealed class DiagnosticsService
                 sweepIntervalMs = _watchOptions.SweepIntervalMilliseconds,
                 minimumFileSizeBytes = _watchOptions.MinimumFileSizeBytes,
                 maxCompletionAttempts = _watchOptions.MaxCompletionAttempts,
-                shotCount = _sessionOptions.ShotCount,
+                template = _templates.Current.Name,
+                templateSource = (_templates as FileTemplateProvider)?.Source ?? "unknown",
+                usingBuiltInFallback = (_templates as FileTemplateProvider)?.UsingFallback ?? false,
+                shotCount = _templates.Current.ShotCount,
+                canvas = $"{_templates.Current.Canvas.Width}x{_templates.Current.Canvas.Height}"
+                         + $" @ {_templates.Current.Canvas.Dpi} DPI",
                 countdownSeconds = _sessionOptions.CountdownSeconds,
                 noPhotoTimeoutSeconds = _sessionOptions.NoPhotoTimeoutSeconds,
             },

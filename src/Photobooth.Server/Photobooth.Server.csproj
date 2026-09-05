@@ -3,6 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Photobooth.Core\Photobooth.Core.csproj" />
     <ProjectReference Include="..\Photobooth.Cameras\Photobooth.Cameras.csproj" />
+    <ProjectReference Include="..\Photobooth.Imaging\Photobooth.Imaging.csproj" />
+    <ProjectReference Include="..\Photobooth.Delivery\Photobooth.Delivery.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -14,8 +16,8 @@
   <!-- Sample photos for MockEosUtility. Copied next to the app so a published
        build can run a full mock session on a machine with no camera. -->
   <ItemGroup>
-    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\templates\*" Link="templates\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
@@ -38,8 +40,7 @@
        produced a result. Debugging a remote field test without knowing which
        version the tester ran is close to impossible. -->
   <Target Name="StampBuildInfo" BeforeTargets="GetAssemblyAttributes">
-    <Exec Command="git rev-parse --short=8 HEAD" ConsoleToMSBuild="true"
-          ContinueOnError="true" StandardOutputImportance="low">
+    <Exec Command="git rev-parse --short=8 HEAD" ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="ResolvedGitSha" />
       <Output TaskParameter="ExitCode" PropertyName="GitExitCode" />
     </Exec>

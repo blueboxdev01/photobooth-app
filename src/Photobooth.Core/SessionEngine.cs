@@ -17,6 +17,7 @@ namespace Photobooth.Core;
 public sealed class SessionEngine : IDisposable
 {
     private readonly SessionSettings _options;
+    private readonly ITemplateProvider _templates;
     private readonly TimeProvider _time;
     private readonly ILogger<SessionEngine> _logger;
 
@@ -29,13 +30,17 @@ public sealed class SessionEngine : IDisposable
     private DateTimeOffset? _timeoutAt;
     private DateTimeOffset? _startedUtc;
     private string? _message;
+    private string? _stripUrl;
+    private string? _sessionFolder;
 
     public SessionEngine(
         IOptions<SessionSettings> options,
+        ITemplateProvider templates,
         ILogger<SessionEngine> logger,
         TimeProvider? timeProvider = null)
     {
         _options = options.Value;
+        _templates = templates;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
     }
@@ -43,7 +48,12 @@ public sealed class SessionEngine : IDisposable
     /// <summary>Raised after every state change, outside the lock.</summary>
     public event EventHandler<SessionSnapshot>? Changed;
 
-    public int ShotCount => _options.ShotCount;
+    /// <summary>
+    /// Comes from the template's slot count, not a separate setting. Switching to
+    /// a four-frame strip makes sessions capture four photos with nothing else to
+    /// remember to change.
+    /// </summary>
+    public int ShotCount => _templates.Current.ShotCount;
 
     public SessionSnapshot Snapshot
     {
@@ -59,11 +69,13 @@ public sealed class SessionEngine : IDisposable
             _photos.Clear();
             _startedUtc = _time.GetUtcNow();
             _message = null;
+            _stripUrl = null;
+            _sessionFolder = null;
             BeginCountdown();
             snapshot = Build();
         }
 
-        _logger.LogInformation("Session armed for {Count} shots.", _options.ShotCount);
+        _logger.LogInformation("Session armed for {Count} shots.", ShotCount);
         Publish(snapshot);
         return snapshot;
     }
@@ -89,7 +101,7 @@ public sealed class SessionEngine : IDisposable
             _photos.Add(photo);
             _message = null;
 
-            if (_photos.Count >= _options.ShotCount)
+            if (_photos.Count >= ShotCount)
             {
                 StopTimer();
                 _state = SessionState.ReviewShots;
@@ -156,7 +168,13 @@ public sealed class SessionEngine : IDisposable
         return snapshot;
     }
 
-    /// <summary>Accept the shots and finish. Composing and upload arrive in M4/M7.</summary>
+    /// <summary>
+    /// Accept the shots and start building the strip.
+    ///
+    /// This only moves the state; the compositing and archiving happen outside,
+    /// which is what keeps this class free of the filesystem. Whoever does the
+    /// work calls <see cref="CompleteComposing"/> or <see cref="FailComposing"/>.
+    /// </summary>
     public SessionSnapshot Accept()
     {
         SessionSnapshot snapshot;
@@ -168,13 +186,59 @@ public sealed class SessionEngine : IDisposable
             }
 
             StopTimer();
-            _state = SessionState.Done;
+            _state = SessionState.Composing;
             _countdownEnds = null;
             _timeoutAt = null;
             snapshot = Build();
         }
 
-        _logger.LogInformation("Session accepted.");
+        _logger.LogInformation("Session accepted; composing.");
+        Publish(snapshot);
+        return snapshot;
+    }
+
+    /// <summary>The strip is built and archived.</summary>
+    public SessionSnapshot CompleteComposing(string stripUrl, string sessionFolder)
+    {
+        SessionSnapshot snapshot;
+        lock (_sync)
+        {
+            if (_state != SessionState.Composing)
+            {
+                return Build();
+            }
+
+            _stripUrl = stripUrl;
+            _sessionFolder = sessionFolder;
+            _state = SessionState.Done;
+            snapshot = Build();
+        }
+
+        Publish(snapshot);
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Composing failed. Returns to review rather than Idle: the photos are still
+    /// good, and throwing away a guest's session because the strip failed to
+    /// render would be the wrong trade.
+    /// </summary>
+    public SessionSnapshot FailComposing(string message)
+    {
+        SessionSnapshot snapshot;
+        lock (_sync)
+        {
+            if (_state != SessionState.Composing)
+            {
+                return Build();
+            }
+
+            _state = SessionState.ReviewShots;
+            _message = message;
+            snapshot = Build();
+        }
+
+        _logger.LogError("Composing failed: {Message}", message);
         Publish(snapshot);
         return snapshot;
     }
@@ -192,6 +256,8 @@ public sealed class SessionEngine : IDisposable
             _timeoutAt = null;
             _startedUtc = null;
             _message = reason;
+            _stripUrl = null;
+            _sessionFolder = null;
             snapshot = Build();
         }
 
@@ -265,12 +331,14 @@ public sealed class SessionEngine : IDisposable
 
     private SessionSnapshot Build() => new(
         _state,
-        _options.ShotCount,
+        ShotCount,
         _photos.ToList(),
         _countdownEnds,
         _timeoutAt,
         _startedUtc,
-        _message);
+        _message,
+        _stripUrl,
+        _sessionFolder);
 
     private void Publish(SessionSnapshot snapshot) => Changed?.Invoke(this, snapshot);
 

@@ -16,14 +16,18 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 |---|---|
 | M1 Watch-folder ingest | done |
 | M2 Session engine, two-window flow, posing mirror | done |
-| M3 Ingest hardening | done — 11 tests, one per failure mode |
-| M4 Compositor + 2×6 strip | not started |
+| M3 Ingest hardening | done — 12 tests, one per failure mode |
+| M4 Compositor + 2×6 strip + local archive | done — golden-image tested |
 | **M5 Field-test build** | **done — this is what your colleague runs** |
 | M6 Remote hardware bring-up | waiting on the camera |
 | M7 Google Drive delivery + QR | not started |
 | M8 Frame upload + slot editor | not started |
 
-32 tests passing. Nothing has yet been verified against a real camera.
+42 tests passing. Nothing has yet been verified against a real camera.
+
+Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
+and a `session.json` describing them. From M7 the Drive folder receives a copy of
+exactly that folder under the same name.
 
 ## Two cameras, two entirely separate paths
 

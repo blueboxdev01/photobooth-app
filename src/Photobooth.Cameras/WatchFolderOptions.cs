@@ -47,8 +47,12 @@ public sealed class WatchFolderOptions
     public long MinimumFileSizeBytes { get; set; } = 1024;
 
     /// <summary>
-    /// How many times to re-examine a file that will not settle before giving up
-    /// on it for good.
+    /// How many times to re-examine a file that is making **no progress** before
+    /// giving up on it for good.
+    ///
+    /// Progress is what matters, not elapsed time: a large JPEG over a slow link
+    /// can exceed the completion timeout repeatedly while transferring perfectly
+    /// well, and abandoning it would throw away a real photo.
     ///
     /// Without a limit, the periodic sweep keeps re-offering a permanently stuck
     /// file and ingest spends the rest of the event timing out on it -- so a

@@ -5,6 +5,15 @@ using Photobooth.Core;
 
 namespace Photobooth.Core.Tests;
 
+/// <summary>A template with the given number of slots, and nothing else.</summary>
+file sealed class FakeTemplateProvider(int slots) : ITemplateProvider
+{
+    public StripTemplate Current { get; } = new(
+        "fake",
+        new TemplateCanvas(600, 1800),
+        [.. Enumerable.Range(0, slots).Select(i => new TemplateSlot(0, i * 0.25, 1, 0.25))]);
+}
+
 public class SessionEngineTests
 {
     private const int Shots = 3;
@@ -16,12 +25,17 @@ public class SessionEngineTests
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero));
         var options = Options.Create(new SessionSettings
         {
-            ShotCount = Shots,
             CountdownSeconds = Countdown,
             NoPhotoTimeoutSeconds = Timeout,
         });
 
-        return (new SessionEngine(options, NullLogger<SessionEngine>.Instance, time), time);
+        // The template decides how many photos a session takes, so the test needs
+        // one with the right number of slots rather than a shot-count setting.
+        var templates = new FakeTemplateProvider(Shots);
+
+        return (
+            new SessionEngine(options, templates, NullLogger<SessionEngine>.Instance, time),
+            time);
     }
 
     private static CapturedPhoto Photo(string name) =>
