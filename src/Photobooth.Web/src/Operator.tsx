@@ -1,4 +1,5 @@
 import { photoUrl } from './types'
+import { useState } from 'react'
 import { command, useCountdown, useSession } from './useSession'
 
 const MOCK_MODES = [
@@ -11,6 +12,7 @@ const MOCK_MODES = [
 /** The laptop screen. Everything the operator can actually do. */
 export function Operator() {
   const { snapshot, camera, connected } = useSession()
+  const [mockResult, setMockResult] = useState<{ ok: boolean; text: string } | null>(null)
   const remaining = useCountdown(snapshot?.countdownEndsUtc ?? null)
 
   if (!snapshot) {
@@ -19,8 +21,27 @@ export function Operator() {
 
   const state = snapshot.state
   const running = state !== 'Idle' && state !== 'Done'
-  const press = (mode: string) =>
-    fetch(`/api/mock/press?mode=${mode}`, { method: 'POST' })
+
+  const press = async (mode: string) => {
+    try {
+      const r = await fetch(`/api/mock/press?mode=${mode}`, { method: 'POST' })
+      const body = await r.json()
+      if (!r.ok) {
+        setMockResult({ ok: false, text: body.error ?? `HTTP ${r.status}` })
+        return
+      }
+
+      setMockResult({
+        ok: true,
+        text: running
+          ? `wrote ${body.file} (${body.mode})`
+          : `wrote ${body.file} — but no session is running, so it will be ` +
+            `ingested and then ignored. Click Start session first.`,
+      })
+    } catch (e) {
+      setMockResult({ ok: false, text: e instanceof Error ? e.message : 'Request failed' })
+    }
+  }
 
   return (
     <main className="operator">
@@ -86,6 +107,9 @@ export function Operator() {
             <button key={mode} onClick={() => press(mode)}>{label}</button>
           ))}
         </div>
+        {mockResult && (
+          <p className={mockResult.ok ? 'muted small' : 'banner'}>{mockResult.text}</p>
+        )}
         {camera && <p className="muted small">Watch folder: <code>{camera.watchFolder}</code></p>}
       </section>
     </main>

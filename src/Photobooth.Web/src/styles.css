@@ -81,8 +81,16 @@ button.primary:hover { background: #245a95; }
   /* Guests expect a mirror; an unmirrored feed feels subtly wrong. */
   transform: scaleX(-1);
 }
-.mirror--error { display: flex; flex-direction: column; align-items: center;
-                 justify-content: center; border: 1px dashed var(--line); }
+.mirror--error {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 6px; padding: 24px 32px; text-align: center;
+  border: 1px dashed var(--line);
+}
+.mirror__headline { font-size: 22px; font-weight: 600; margin: 0; color: var(--bad); }
+.mirror__hints {
+  margin: 4px 0 8px; padding: 0; list-style: none;
+  color: var(--muted); font-size: 14px; line-height: 1.7; max-width: 46ch;
+}
 
 /* Shows the strip slot's crop, not the camera frame -- 3:2 sensor into a 4:3
    slot loses the sides, and with them anyone's shoulders. */
@@ -102,6 +110,12 @@ button.primary:hover { background: #245a95; }
   animation: pop .4s ease-out;
 }
 @keyframes pop { from { transform: scale(1.4); opacity: .2 } to { transform: scale(1); opacity: 1 } }
+
+.attract {
+  position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.55); padding: 10px 28px; border-radius: 999px;
+  font-size: 30px; font-weight: 600;
+}
 
 .hold {
   position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);

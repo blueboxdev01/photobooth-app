@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { selectedWebcamId } from './useWebcams'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { selectedWebcamId, setSelectedWebcamId } from './useWebcams'
 
 /**
  * The guest-facing live preview.
@@ -21,45 +21,65 @@ import { selectedWebcamId } from './useWebcams'
  */
 export function PosingMirror({ slotAspect = 4 / 3 }: { slotAspect?: number }) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [error, setError] = useState<string | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const [problem, setProblem] = useState<Problem | null>(null)
+  const [attempt, setAttempt] = useState(0)
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), [])
 
   useEffect(() => {
-    let stream: MediaStream | null = null
     let cancelled = false
 
-    // The machine may have several cameras -- a laptop's built-in one and the
-    // booth webcam. Whichever was picked on the diagnostics page wins.
-    const deviceId = selectedWebcamId()
-    navigator.mediaDevices
-      ?.getUserMedia({
-        video: deviceId
-          ? { deviceId: { exact: deviceId }, width: 1280, height: 720 }
-          : { width: 1280, height: 720 },
-        audio: false,
-      })
-      .then((s) => {
+    const stop = () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+
+    const start = async () => {
+      stop()
+      try {
+        const stream = await open(selectedWebcamId())
         if (cancelled) {
-          s.getTracks().forEach((t) => t.stop())
+          stream.getTracks().forEach((t) => t.stop())
           return
         }
-        stream = s
-        if (videoRef.current) videoRef.current.srcObject = s
-      })
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : 'Could not open the webcam.'),
-      )
 
+        streamRef.current = stream
+        if (videoRef.current) videoRef.current.srcObject = stream
+        setProblem(null)
+      } catch (e) {
+        if (!cancelled) setProblem(describe(e))
+      }
+    }
+
+    void start()
     return () => {
       cancelled = true
-      stream?.getTracks().forEach((t) => t.stop())
+      stop()
     }
-  }, [])
+  }, [attempt])
 
-  if (error) {
+  if (problem) {
     return (
       <div className="mirror mirror--error">
-        <p>Posing mirror unavailable</p>
-        <p className="muted small">{error}</p>
+        <p className="mirror__headline">{problem.headline}</p>
+        <ul className="mirror__hints">
+          {problem.hints.map((h) => <li key={h}>{h}</li>)}
+        </ul>
+        <p className="muted small">{problem.raw}</p>
+        <div className="controls">
+          <button onClick={retry}>Try again</button>
+          {problem.offerReset && (
+            <button
+              onClick={() => {
+                setSelectedWebcamId(null)
+                retry()
+              }}
+            >
+              Use the default camera
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -72,4 +92,95 @@ export function PosingMirror({ slotAspect = 4 / 3 }: { slotAspect?: number }) {
       </div>
     </div>
   )
+}
+
+/**
+ * Opens the chosen camera, falling back to any camera if that specific device is
+ * gone. A stored device id can outlive the device it names -- a webcam unplugged,
+ * or the same browser profile on another machine -- and that should not leave the
+ * booth with no preview at all.
+ */
+async function open(deviceId: string | null): Promise<MediaStream> {
+  const size = { width: 1280, height: 720 }
+
+  if (!deviceId) {
+    return navigator.mediaDevices.getUserMedia({ video: size, audio: false })
+  }
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId }, ...size },
+      audio: false,
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'OverconstrainedError') {
+      return navigator.mediaDevices.getUserMedia({ video: size, audio: false })
+    }
+
+    throw e
+  }
+}
+
+interface Problem {
+  headline: string
+  hints: string[]
+  raw: string
+  offerReset: boolean
+}
+
+/**
+ * Turns a browser camera error into something actionable.
+ *
+ * "Could not start video source" wastes the most time of any of these: permission
+ * was granted and the device exists, but something else already holds it -- very
+ * often another tab of this same app, since the diagnostics page opens the camera
+ * too in order to read device labels.
+ */
+function describe(e: unknown): Problem {
+  const raw = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+  const name = e instanceof DOMException ? e.name : ''
+
+  if (name === 'NotReadableError' || /could not start video source/i.test(raw)) {
+    return {
+      headline: 'The camera is busy',
+      hints: [
+        'Close any other tab showing /display or /diagnostics — both open the camera.',
+        'Quit Zoom, Teams, OBS or the Windows Camera app if any are running.',
+        'Unplug and replug a USB webcam, then press Try again.',
+      ],
+      raw,
+      offerReset: true,
+    }
+  }
+
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return {
+      headline: 'Camera access was refused',
+      hints: [
+        'Click the camera icon in the address bar and allow this site.',
+        'Windows: Settings → Privacy & security → Camera, and let apps use it.',
+      ],
+      raw,
+      offerReset: false,
+    }
+  }
+
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return {
+      headline: 'No camera found',
+      hints: [
+        'Plug the webcam in, then press Try again.',
+        'A camera picked earlier may no longer be connected.',
+      ],
+      raw,
+      offerReset: true,
+    }
+  }
+
+  return {
+    headline: 'Posing mirror unavailable',
+    hints: ['Press Try again, or pick a different camera on /diagnostics.'],
+    raw,
+    offerReset: true,
+  }
 }

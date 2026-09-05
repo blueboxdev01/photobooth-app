@@ -52,6 +52,58 @@ jobs:
           -p:EnableCompressionInSingleFile=true
           --output artifacts/publish
 
+      # A build that cannot run a mock session is useless to a field tester, and
+      # "the folder exists" is not the same as "the folder has files in it" --
+      # that exact gap shipped a release whose samples folder was empty.
+      - name: Smoke test the published build
+        shell: pwsh
+        run: |
+          foreach ($dir in 'samples', 'wwwroot') {
+            $count = (Get-ChildItem "artifacts/publish/$dir" -File -Recurse).Count
+            if ($count -eq 0) { throw "artifacts/publish/$dir is empty" }
+            Write-Host "$dir has $count file(s)"
+          }
+
+          $exe = Start-Process -PassThru -WorkingDirectory artifacts/publish `
+                               -FilePath ./Photobooth.Server.exe
+          try {
+            $ready = $false
+            foreach ($i in 1..40) {
+              Start-Sleep -Milliseconds 500
+              try {
+                Invoke-RestMethod http://localhost:5000/api/state -TimeoutSec 2 | Out-Null
+                $ready = $true; break
+              } catch { }
+            }
+            if (-not $ready) { throw "the published app never started" }
+
+            # The real check: a mock press must actually produce a photo.
+            $press = Invoke-RestMethod -Method Post `
+                       'http://localhost:5000/api/mock/press?mode=Normal'
+            if (-not $press.file) { throw "mock press produced no file" }
+            Write-Host "mock press wrote $($press.file)"
+
+            Start-Sleep -Seconds 3
+            $diag = Invoke-RestMethod http://localhost:5000/api/diagnostics
+            $accepted = @($diag.ingest | Where-Object { $_.outcome -eq 'Accepted' })
+            if ($accepted.Count -eq 0) { throw "the photo was never ingested" }
+            Write-Host "ingested OK: $($accepted[0].fileName)"
+
+            foreach ($page in '/operator', '/display', '/diagnostics') {
+              $r = Invoke-WebRequest "http://localhost:5000$page" -TimeoutSec 5
+              if ($r.StatusCode -ne 200) { throw "$page returned $($r.StatusCode)" }
+            }
+            Write-Host "all pages served"
+          }
+          finally {
+            Stop-Process -Id $exe.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+            # The smoke test just created data/ with a photo and a log in it.
+            # Shipping that inside the release would put a test image -- and a
+            # precedent for shipping a data folder -- into every download.
+            Remove-Item artifacts/publish/data -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Package
         shell: pwsh
         run: |

@@ -1,79 +1,101 @@
 import { photoUrl } from './types'
-import type { SessionSnapshot } from './types'
+import type { SessionSnapshot, SessionState } from './types'
 import { useCountdown, useSession } from './useSession'
 import { PosingMirror } from './PosingMirror'
+
+/**
+ * States that show the guest a live mirror.
+ *
+ * Idle is included on purpose. An attract screen showing people themselves is
+ * what pulls them into the booth, and it means framing and lighting can be
+ * checked without starting a session.
+ */
+const MIRROR_STATES: SessionState[] = ['Idle', 'Countdown', 'Collecting', 'TimedOut']
 
 /** The guest-facing screen. Fullscreen on the external monitor. */
 export function Display() {
   const { snapshot } = useSession()
 
   if (!snapshot) {
-    return <div className="stage stage--idle"><p className="muted">Connecting…</p></div>
+    return <div className="stage"><p className="muted">Connecting…</p></div>
   }
 
-  switch (snapshot.state) {
-    case 'Idle':
-      return (
-        <div className="stage stage--idle">
-          <h1>Step in and smile</h1>
-          <p className="muted">{snapshot.shotCount} photos, then your QR code</p>
-          {snapshot.message && <p className="muted small">{snapshot.message}</p>}
-        </div>
-      )
+  const { state } = snapshot
 
-    case 'Countdown':
-      return <Posing snapshot={snapshot} counting />
-
-    case 'Collecting':
-      return <Posing snapshot={snapshot} counting={false} />
-
-    case 'TimedOut':
-      return (
-        <div className="stage stage--idle">
-          <h1>Just a moment…</h1>
-          <p className="muted">Hang tight while we sort the camera out.</p>
-          <Filmstrip snapshot={snapshot} />
-        </div>
-      )
-
-    case 'ReviewShots':
-      return (
-        <div className="stage">
-          <h1>How do these look?</h1>
-          <Filmstrip snapshot={snapshot} large />
-        </div>
-      )
-
-    default:
-      return (
-        <div className="stage stage--idle">
-          <h1>All done</h1>
-          <p className="muted">Your photos are on their way.</p>
-          <Filmstrip snapshot={snapshot} />
-        </div>
-      )
+  // Reviewing photos is the one time the mirror is not wanted -- guests are
+  // looking at what they took, not at themselves.
+  if (state === 'ReviewShots') {
+    return (
+      <div className="stage">
+        <h1>How do these look?</h1>
+        <Filmstrip snapshot={snapshot} large />
+      </div>
+    )
   }
-}
 
-function Posing({ snapshot, counting }: { snapshot: SessionSnapshot; counting: boolean }) {
-  const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null)
+  if (!MIRROR_STATES.includes(state)) {
+    return (
+      <div className="stage">
+        <h1>All done</h1>
+        <p className="muted">Your photos are on their way.</p>
+        <Filmstrip snapshot={snapshot} />
+      </div>
+    )
+  }
 
   return (
     <div className="stage stage--posing">
+      {/*
+        One PosingMirror across every mirror state. Mounting it per state would
+        tear down and re-acquire the webcam on each transition, which shows up as
+        a black flash and a second of nothing exactly as the countdown starts.
+      */}
       <div className="stage__mirror">
         <PosingMirror />
-        {counting && remaining !== null && (
-          <div className="countdown" key={Math.ceil(remaining)}>
-            {Math.max(1, Math.ceil(remaining))}
-          </div>
-        )}
-        {!counting && <div className="hold">Hold it…</div>}
+        <Overlay snapshot={snapshot} />
       </div>
-      <p className="shotcount">
-        Photo {snapshot.currentShot} of {snapshot.shotCount}
-      </p>
+      <Caption snapshot={snapshot} />
       <Filmstrip snapshot={snapshot} />
     </div>
+  )
+}
+
+function Overlay({ snapshot }: { snapshot: SessionSnapshot }) {
+  const counting = snapshot.state === 'Countdown'
+  const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null)
+
+  if (counting && remaining !== null) {
+    return (
+      <div className="countdown" key={Math.ceil(remaining)}>
+        {Math.max(1, Math.ceil(remaining))}
+      </div>
+    )
+  }
+
+  if (snapshot.state === 'Collecting') {
+    return <div className="hold">Hold it…</div>
+  }
+
+  if (snapshot.state === 'Idle') {
+    return <div className="attract">Step in and smile</div>
+  }
+
+  return <div className="hold">Just a moment…</div>
+}
+
+function Caption({ snapshot }: { snapshot: SessionSnapshot }) {
+  if (snapshot.state === 'Idle') {
+    return (
+      <p className="shotcount">
+        {snapshot.shotCount} photos, then your QR code
+      </p>
+    )
+  }
+
+  return (
+    <p className="shotcount">
+      Photo {snapshot.currentShot} of {snapshot.shotCount}
+    </p>
   )
 }
 

@@ -14,7 +14,8 @@
   <!-- Sample photos for MockEosUtility. Copied next to the app so a published
        build can run a full mock session on a machine with no camera. -->
   <ItemGroup>
-    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />

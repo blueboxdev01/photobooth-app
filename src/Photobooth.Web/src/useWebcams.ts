@@ -37,18 +37,28 @@ export function useWebcams() {
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
+    const cameras = async () =>
+      (await navigator.mediaDevices.enumerateDevices())
+        .filter((d) => d.kind === 'videoinput')
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      stream.getTracks().forEach((t) => t.stop())
+      let found = await cameras()
+
+      // Only grab a stream if labels are still hidden, which means permission has
+      // never been granted. Opening the camera unconditionally here would fight
+      // /display for the device on machines whose webcam allows one reader --
+      // and produce exactly the "could not start video source" it is meant to
+      // help diagnose.
+      if (found.length > 0 && found.every((d) => d.label === '')) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        stream.getTracks().forEach((t) => t.stop())
+        found = await cameras()
+      }
+
+      setDevices(found)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Camera access was refused.')
-    }
-
-    try {
-      const all = await navigator.mediaDevices.enumerateDevices()
-      setDevices(all.filter((d) => d.kind === 'videoinput'))
-    } catch {
       setDevices([])
     }
   }, [])
