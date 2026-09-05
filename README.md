@@ -21,9 +21,9 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | **M5 Field-test build** | **done — this is what your colleague runs** |
 | M6 Remote hardware bring-up | waiting on the camera |
 | M7 Google Drive delivery + QR | not started |
-| M8 Frame upload + slot editor | not started |
+| M8 Frame upload + slot editor | done — `/templates` |
 
-42 tests passing. Nothing has yet been verified against a real camera.
+60 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
 and a `session.json` describing them. From M7 the Drive folder receives a copy of
@@ -60,6 +60,7 @@ Then open:
 |---|---|
 | <http://localhost:5000/operator> | controls — on your laptop |
 | <http://localhost:5000/display> | guest screen — fullscreen on the monitor |
+| <http://localhost:5000/templates> | frame upload and the slot editor |
 | <http://localhost:5000/diagnostics> | what the app is seeing |
 
 With no camera attached, the operator page can simulate the shutter. The mock is
@@ -72,6 +73,12 @@ before real hardware exists.
 See **[docs/FIELD-TEST.md](docs/FIELD-TEST.md)**. The short version: the build
 runs standalone, uploads nothing, and `/diagnostics` reports what the app saw,
 what it rejected and why, and exactly which commit produced the answer.
+
+## Upgrading a booth
+
+`data/` and `templates/` live **next to the .exe**, so when you unzip a new
+release, copy both across from the old folder. `data/` holds every past session;
+`templates/` holds any frame you made in the editor.
 
 ## Configuration
 

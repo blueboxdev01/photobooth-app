@@ -184,3 +184,65 @@ a.button {
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
 .result .strip { height: 260px; box-shadow: none; }
+
+/* ---------- template editor ---------- */
+
+.templates { max-width: 1400px; }
+.templates__layout { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+.templates__panel { flex: 1 1 320px; min-width: 320px; max-width: 420px; }
+.templates__panel section { margin-bottom: 20px; }
+.templates__panel h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+  padding-bottom: 5px; margin: 0 0 9px;
+}
+.templates__preview { flex: 0 0 auto; }
+.templates__preview h2 { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+
+/* The editable canvas. Slots are positioned in percentages, so this box can be
+   any size without touching the stored template. */
+.stagebox {
+  position: relative; border-radius: 4px; overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .55); touch-action: none; user-select: none;
+}
+.stagebox__overlay {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none;   /* the frame must never swallow a drag */
+}
+
+.slot {
+  position: absolute; cursor: move; overflow: hidden;
+  outline: 2px dashed rgba(111, 178, 255, .95); outline-offset: -2px;
+}
+.slot img { width: 100%; height: 100%; display: block; }
+.slot--active { outline: 2px solid var(--guide); z-index: 3; }
+.slot__index {
+  position: absolute; top: 4px; left: 6px; font-size: 12px; font-weight: 700;
+  color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .9);
+}
+.slot__handle {
+  position: absolute; right: -1px; bottom: -1px; width: 16px; height: 16px;
+  background: var(--guide); cursor: nwse-resize; border-radius: 3px 0 3px 0;
+}
+
+.templates__panel label { display: block; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+.templates__panel input[type=number], .templates__panel input[type=text],
+.templates__panel input:not([type]) {
+  width: 100%; font: inherit; margin-top: 3px; padding: 6px 9px;
+  background: #232830; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+}
+.templates__panel select {
+  font: inherit; padding: 6px 9px; background: #232830; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+
+.slotlist { list-style: none; margin: 0 0 10px; padding: 0; }
+.slotlist li {
+  display: flex; gap: 8px; align-items: center; padding: 5px 8px;
+  border: 1px solid var(--line); border-radius: 6px; margin-bottom: 5px;
+  cursor: pointer; font-size: 12.5px;
+}
+.slotlist li.active { border-color: var(--guide); background: #23262c; }
+.slotlist li code { flex: 1; }
+.slotlist button { padding: 2px 8px; }

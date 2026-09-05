@@ -34,6 +34,13 @@ public sealed class FileTemplateProvider : ITemplateProvider
         Converters = { new JsonStringEnumConverter() },
     };
 
+    private static readonly JsonSerializerOptions WriteJson = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private readonly TemplateOptions _options;
     private readonly ILogger<FileTemplateProvider> _logger;
     private readonly Lock _sync = new();
@@ -47,9 +54,24 @@ public sealed class FileTemplateProvider : ITemplateProvider
     /// dimensions -- so when the file is missing, everything looks right except
     /// the frame art, which is a genuinely hard thing to notice.
     /// </summary>
-    public string Source { get; private set; } = "not loaded";
+    /// <remarks>
+    /// Reading this loads the template if it has not been loaded yet. Otherwise
+    /// it would report a meaningless default until something else happened to
+    /// touch <see cref="Current"/> first -- a trap for exactly the diagnostics
+    /// this property exists to serve.
+    /// </remarks>
+    public string Source
+    {
+        get { _ = Current; return _source; }
+    }
 
-    public bool UsingFallback { get; private set; }
+    public bool UsingFallback
+    {
+        get { _ = Current; return _usingFallback; }
+    }
+
+    private string _source = "not loaded";
+    private bool _usingFallback;
 
     public FileTemplateProvider(
         IOptions<TemplateOptions> options, ILogger<FileTemplateProvider> logger)
@@ -86,6 +108,83 @@ public sealed class FileTemplateProvider : ITemplateProvider
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    /// <summary>
+    /// A template name that is safe to use as a file name.
+    ///
+    /// Templates are named by the operator and become paths, so this is the only
+    /// thing standing between a typed name and writing outside the folder.
+    /// </summary>
+    public static bool IsValidName(string? name) =>
+        !string.IsNullOrWhiteSpace(name)
+        && name.Length <= 60
+        && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')
+        && !name.StartsWith('-');
+
+    /// <summary>Writes a template to disk and makes it the one in force.</summary>
+    public StripTemplate Save(string name, StripTemplate template)
+    {
+        if (!IsValidName(name))
+        {
+            throw new ArgumentException(
+                "Template names may use letters, digits, dashes and underscores only.",
+                nameof(name));
+        }
+
+        Directory.CreateDirectory(Folder);
+        File.WriteAllText(
+            Path.Combine(Folder, name + ".json"),
+            JsonSerializer.Serialize(template, WriteJson));
+
+        _logger.LogInformation(
+            "Saved template {Name} with {Slots} slots.", name, template.Slots.Count);
+
+        return Select(name);
+    }
+
+    /// <summary>Stores frame art for a template and points the template at it.</summary>
+    public string SaveOverlay(string name, ReadOnlySpan<byte> png)
+    {
+        if (!IsValidName(name))
+        {
+            throw new ArgumentException("Invalid template name.", nameof(name));
+        }
+
+        if (!LooksLikePng(png))
+        {
+            throw new ArgumentException(
+                "The frame must be a PNG. Transparency is what lets the photos show through.");
+        }
+
+        Directory.CreateDirectory(Folder);
+        var fileName = name + ".png";
+        File.WriteAllBytes(Path.Combine(Folder, fileName), png.ToArray());
+        _logger.LogInformation("Saved overlay {File} ({Bytes} bytes).", fileName, png.Length);
+
+        lock (_sync)
+        {
+            _current = null;   // reload so the new art is picked up
+        }
+
+        return fileName;
+    }
+
+    public string? OverlayPath(string name)
+    {
+        if (!IsValidName(name))
+        {
+            return null;
+        }
+
+        var path = Path.Combine(Folder, name + ".png");
+        return File.Exists(path) ? path : null;
+    }
+
+    /// <summary>PNG magic number. A JPEG here would silently paint over the photos.</summary>
+    private static bool LooksLikePng(ReadOnlySpan<byte> data) =>
+        data.Length > 8
+        && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47
+        && data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A;
 
     /// <summary>Switch templates. Changes how many photos the next session takes.</summary>
     public StripTemplate Select(string name)
@@ -127,8 +226,8 @@ public sealed class FileTemplateProvider : ITemplateProvider
                 template.Name, template.Slots.Count,
                 template.Canvas.Width, template.Canvas.Height, template.Canvas.Dpi);
 
-            Source = path;
-            UsingFallback = false;
+            _source = path;
+            _usingFallback = false;
             return template;
         }
         catch (Exception ex)
@@ -141,8 +240,8 @@ public sealed class FileTemplateProvider : ITemplateProvider
 
     private StripTemplate Fallback(string why)
     {
-        Source = $"built-in fallback ({why})";
-        UsingFallback = true;
+        _source = $"built-in fallback ({why})";
+        _usingFallback = true;
         return BuiltIn;
     }
 

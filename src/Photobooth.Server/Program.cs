@@ -89,6 +89,8 @@ app.UseStaticFiles();
 
 app.MapHub<SessionHub>("/hub/session");
 
+app.MapTemplateEndpoints();
+
 app.MapGet("/api/state", (WatchFolderCamera camera, SessionEngine engine) => Results.Ok(new
 {
     camera = new
