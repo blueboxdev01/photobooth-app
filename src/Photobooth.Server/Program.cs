@@ -1,18 +1,38 @@
+using System.Text.Json.Serialization;
 using Photobooth.Cameras;
 using Photobooth.Core;
 using Photobooth.Server;
 
-var builder = WebApplication.CreateBuilder(args);
+// ASP.NET has its own SessionOptions (cookie sessions), which we do not use.
+using SessionOptions = Photobooth.Core.SessionOptions;
+
+// ContentRoot must be the app folder, not the shell's working directory.
+// Without this, running the built DLL from anywhere but the project directory
+// leaves ASP.NET unable to find wwwroot or appsettings.json -- and it fails by
+// serving 404s rather than complaining, which is a miserable way to lose an hour.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 builder.Services.Configure<WatchFolderOptions>(
     builder.Configuration.GetSection(WatchFolderOptions.SectionName));
 builder.Services.Configure<MockEosUtilityOptions>(
     builder.Configuration.GetSection(MockEosUtilityOptions.SectionName));
+builder.Services.Configure<SessionOptions>(
+    builder.Configuration.GetSection(SessionOptions.SectionName));
 
 // Relative paths resolve against the app folder rather than whatever directory
 // the shell happened to be in, so `dotnet run` and an unzipped published build
 // behave identically -- which matters for a field-test build.
-builder.Services.PostConfigure<WatchFolderOptions>(o => o.Path = ResolveAppPath(o.Path));
+builder.Services.PostConfigure<WatchFolderOptions>(o =>
+{
+    o.Path = ResolveAppPath(o.Path);
+    o.Extensions = o.Extensions.Length == 0
+        ? WatchFolderOptions.DefaultExtensions
+        : o.Extensions.Select(e => e.ToLowerInvariant()).Distinct().ToArray();
+});
 builder.Services.PostConfigure<MockEosUtilityOptions>(
     o => o.SourceFolder = ResolveAppPath(o.SourceFolder));
 
@@ -20,38 +40,48 @@ static string ResolveAppPath(string path) => Path.IsPathRooted(path)
     ? path
     : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path));
 
+// States travel as names, not numbers: a snapshot showing "Collecting" is worth
+// a great deal more than one showing 2 when reading a field tester's logs.
+builder.Services.ConfigureHttpJsonOptions(
+    o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services
+    .AddSignalR()
+    .AddJsonProtocol(o =>
+        o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<WatchFolderCamera>();
 builder.Services.AddSingleton<ICameraDevice>(sp => sp.GetRequiredService<WatchFolderCamera>());
 builder.Services.AddSingleton<MockEosUtility>();
-builder.Services.AddSingleton<CaptureLog>();
-builder.Services.AddHostedService<CameraStartup>();
+builder.Services.AddSingleton<SessionEngine>();
+builder.Services.AddSingleton<SessionCoordinator>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionCoordinator>());
 
 var app = builder.Build();
 
-app.MapGet("/", () => Results.Redirect("/operator"));
-app.MapGet("/operator", () => Results.Content(Pages.Operator, "text/html"));
-app.MapGet("/display", () => Results.Content(Pages.Display, "text/html"));
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
-app.MapGet("/api/state", (WatchFolderCamera camera, CaptureLog log) => Results.Ok(new
+app.MapHub<SessionHub>("/hub/session");
+
+app.MapGet("/api/state", (WatchFolderCamera camera, SessionEngine engine) => Results.Ok(new
 {
     camera = new
     {
         status = camera.Status.ToString(),
         canTrigger = camera.Capabilities.CanTrigger,
         watchFolder = camera.WatchFolderPath,
-        acceptFrom = camera.AcceptFrom,
     },
-    photos = log.Photos.Select(p => new
-    {
-        p.FileName,
-        p.SizeBytes,
-        p.DetectedAtUtc,
-        url = $"/api/photos/{Uri.EscapeDataString(p.FileName)}",
-    }),
+    session = engine.Snapshot,
 }));
 
-// Simulates one press of the shutter release. `mode` reproduces the ways EOS
+app.MapPost("/api/session/arm", (SessionCoordinator c) => Results.Ok(c.Arm()));
+app.MapPost("/api/session/retake", (SessionEngine e) => Results.Ok(e.RetakeLast()));
+app.MapPost("/api/session/resume", (SessionEngine e) => Results.Ok(e.Resume()));
+app.MapPost("/api/session/accept", (SessionEngine e) => Results.Ok(e.Accept()));
+app.MapPost("/api/session/abort", (SessionEngine e) => Results.Ok(e.Abort("Aborted by operator.")));
+
+// Stands in for a press of the BR-E1 remote. `mode` reproduces the ways EOS
 // Utility is expected to misbehave -- see MockWriteMode.
 app.MapPost("/api/mock/press", async (
     MockEosUtility mock, string? mode, CancellationToken cancellationToken) =>
@@ -72,16 +102,6 @@ app.MapPost("/api/mock/press", async (
     }
 });
 
-app.MapPost("/api/session/reset", (WatchFolderCamera camera, CaptureLog log, TimeProvider time) =>
-{
-    // Stands in for "a session started": everything already in the folder becomes
-    // stale and is ignored from here on.
-    camera.AcceptFrom = time.GetUtcNow();
-    camera.ResetSeen();
-    log.Clear();
-    return Results.Ok(new { acceptFrom = camera.AcceptFrom });
-});
-
 // Serves a photo out of the watch folder. File name only -- no paths -- so a
 // crafted name cannot walk out of the folder.
 app.MapGet("/api/photos/{fileName}", (string fileName, WatchFolderCamera camera) =>
@@ -92,60 +112,10 @@ app.MapGet("/api/photos/{fileName}", (string fileName, WatchFolderCamera camera)
     }
 
     var full = Path.Combine(camera.WatchFolderPath, Path.GetFileName(fileName));
-    return File.Exists(full)
-        ? Results.File(full, "image/jpeg")
-        : Results.NotFound();
+    return File.Exists(full) ? Results.File(full, "image/jpeg") : Results.NotFound();
 });
 
+// /operator and /display are client-side views of one bundle.
+app.MapFallbackToFile("index.html");
+
 app.Run();
-
-namespace Photobooth.Server
-{
-    /// <summary>Photos accepted so far. Replaced by the session engine in M2.</summary>
-    public sealed class CaptureLog
-    {
-        private readonly List<CapturedPhoto> _photos = [];
-        private readonly Lock _sync = new();
-
-        public IReadOnlyList<CapturedPhoto> Photos
-        {
-            get { lock (_sync) { return _photos.ToList(); } }
-        }
-
-        public void Add(CapturedPhoto photo)
-        {
-            lock (_sync) { _photos.Add(photo); }
-        }
-
-        public void Clear()
-        {
-            lock (_sync) { _photos.Clear(); }
-        }
-    }
-
-    /// <summary>Starts watching the folder when the app starts.</summary>
-    public sealed class CameraStartup(
-        WatchFolderCamera camera,
-        CaptureLog log,
-        ILogger<CameraStartup> logger) : IHostedService
-    {
-        public async Task StartAsync(CancellationToken cancellationToken)
-        {
-            camera.PhotoArrived += OnPhoto;
-            camera.StatusChanged += OnStatus;
-            await camera.ConnectAsync(cancellationToken);
-        }
-
-        public async Task StopAsync(CancellationToken cancellationToken)
-        {
-            camera.PhotoArrived -= OnPhoto;
-            camera.StatusChanged -= OnStatus;
-            await camera.DisposeAsync();
-        }
-
-        private void OnPhoto(object? sender, PhotoArrivedEventArgs e) => log.Add(e.Photo);
-
-        private void OnStatus(object? sender, CameraStatusEventArgs e) =>
-            logger.LogInformation("Camera {Status}: {Message}", e.Status, e.Message);
-    }
-}

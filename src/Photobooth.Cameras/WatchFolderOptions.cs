@@ -14,9 +14,19 @@ public sealed class WatchFolderOptions
     /// <summary>Folder EOS Utility saves into. Created on start if missing.</summary>
     public string Path { get; set; } = "data/watch";
 
-    /// <summary>Extensions treated as photos. Anything else is ignored -- notably
-    /// .CR3 sidecars if RAW ever gets switched on by accident.</summary>
-    public string[] Extensions { get; set; } = [".jpg", ".jpeg"];
+    /// <summary>
+    /// Extensions treated as photos. Anything else is ignored -- notably .CR3
+    /// sidecars if RAW ever gets switched on by accident.
+    ///
+    /// Starts empty on purpose: configuration binding *appends* to a collection
+    /// that already holds defaults, so seeding this with [".jpg", ".jpeg"] and
+    /// then configuring the same values yields four entries, and configuring
+    /// only ".jpeg" would silently leave ".jpg" enabled. The fallback is applied
+    /// after binding instead -- see DefaultExtensions.
+    /// </summary>
+    public string[] Extensions { get; set; } = [];
+
+    public static readonly string[] DefaultExtensions = [".jpg", ".jpeg"];
 
     /// <summary>Gap between size samples when deciding a file is fully written.</summary>
     public int StabilityPollMilliseconds { get; set; } = 150;
