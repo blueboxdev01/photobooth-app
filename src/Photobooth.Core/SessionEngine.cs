@@ -16,7 +16,7 @@ namespace Photobooth.Core;
 /// </summary>
 public sealed class SessionEngine : IDisposable
 {
-    private readonly SessionOptions _options;
+    private readonly SessionSettings _options;
     private readonly TimeProvider _time;
     private readonly ILogger<SessionEngine> _logger;
 
@@ -31,7 +31,7 @@ public sealed class SessionEngine : IDisposable
     private string? _message;
 
     public SessionEngine(
-        IOptions<SessionOptions> options,
+        IOptions<SessionSettings> options,
         ILogger<SessionEngine> logger,
         TimeProvider? timeProvider = null)
     {

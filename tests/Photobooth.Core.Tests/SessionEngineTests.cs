@@ -14,7 +14,7 @@ public class SessionEngineTests
     private static (SessionEngine Engine, FakeTimeProvider Time) Build()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero));
-        var options = Options.Create(new SessionOptions
+        var options = Options.Create(new SessionSettings
         {
             ShotCount = Shots,
             CountdownSeconds = Countdown,

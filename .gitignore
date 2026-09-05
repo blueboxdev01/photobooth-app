@@ -38,3 +38,6 @@ Thumbs.db
 
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# Publish output
+artifacts/

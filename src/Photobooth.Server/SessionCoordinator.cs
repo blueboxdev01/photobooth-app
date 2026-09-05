@@ -17,6 +17,7 @@ public sealed class SessionCoordinator : IHostedService
     private readonly SessionEngine _engine;
     private readonly IHubContext<SessionHub> _hub;
     private readonly TimeProvider _time;
+    private readonly DiagnosticsService _diagnostics;
     private readonly ILogger<SessionCoordinator> _logger;
 
     public SessionCoordinator(
@@ -24,12 +25,14 @@ public sealed class SessionCoordinator : IHostedService
         SessionEngine engine,
         IHubContext<SessionHub> hub,
         TimeProvider time,
+        DiagnosticsService diagnostics,
         ILogger<SessionCoordinator> logger)
     {
         _camera = camera;
         _engine = engine;
         _hub = hub;
         _time = time;
+        _diagnostics = diagnostics;
         _logger = logger;
     }
 
@@ -37,6 +40,7 @@ public sealed class SessionCoordinator : IHostedService
     {
         _camera.PhotoArrived += OnPhotoArrived;
         _camera.StatusChanged += OnCameraStatus;
+        _camera.IngestDecision += OnIngestDecision;
         _engine.Changed += OnSessionChanged;
 
         // Nothing already sitting in the folder counts until a session starts.
@@ -48,6 +52,7 @@ public sealed class SessionCoordinator : IHostedService
     {
         _camera.PhotoArrived -= OnPhotoArrived;
         _camera.StatusChanged -= OnCameraStatus;
+        _camera.IngestDecision -= OnIngestDecision;
         _engine.Changed -= OnSessionChanged;
         await _camera.DisposeAsync();
     }
@@ -72,6 +77,8 @@ public sealed class SessionCoordinator : IHostedService
                 "{File} arrived outside a session and was not used.", e.Photo.FileName);
         }
     }
+
+    private void OnIngestDecision(object? sender, IngestEvent e) => _diagnostics.Record(e);
 
     private void OnSessionChanged(object? sender, SessionSnapshot snapshot) =>
         Broadcast(snapshot);

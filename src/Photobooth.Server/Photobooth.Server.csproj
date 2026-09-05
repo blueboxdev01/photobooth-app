@@ -14,8 +14,10 @@
   <!-- Sample photos for MockEosUtility. Copied next to the app so a published
        build can run a full mock session on a machine with no camera. -->
   <ItemGroup>
-    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\samples\*.jpg" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
   </ItemGroup>
 
   <!-- Put wwwroot next to the built app, matching the layout `dotnet publish`
@@ -24,9 +26,26 @@
     <ItemGroup>
       <WwwrootFiles Include="wwwroot\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(WwwrootFiles)"
-          DestinationFiles="@(WwwrootFiles->'$(OutDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(WwwrootFiles)" DestinationFiles="@(WwwrootFiles->'$(OutDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+  <PropertyGroup>
+    <Version>0.5.0</Version>
+  </PropertyGroup>
+
+  <!-- Stamp the commit into the assembly so the UI can show exactly which build
+       produced a result. Debugging a remote field test without knowing which
+       version the tester ran is close to impossible. -->
+  <Target Name="StampBuildInfo" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse --short=8 HEAD" ConsoleToMSBuild="true"
+          ContinueOnError="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="ResolvedGitSha" />
+      <Output TaskParameter="ExitCode" PropertyName="GitExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <ResolvedGitSha Condition="'$(GitExitCode)' != '0' or '$(ResolvedGitSha)' == ''">unknown</ResolvedGitSha>
+      <InformationalVersion>$(Version)+$(ResolvedGitSha)</InformationalVersion>
+    </PropertyGroup>
   </Target>
 
 </Project>

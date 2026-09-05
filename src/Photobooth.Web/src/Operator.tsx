@@ -29,6 +29,7 @@ export function Operator() {
         <span className={`pill pill--${state}`}>{state}</span>
         {camera && <span className={`pill pill--${camera.status}`}>Camera {camera.status}</span>}
         {!connected && <span className="pill pill--Faulted">Reconnecting…</span>}
+        <a href="/diagnostics">diagnostics →</a>
       </header>
 
       {snapshot.message && <p className="banner">{snapshot.message}</p>}

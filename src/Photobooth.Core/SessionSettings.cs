@@ -1,6 +1,12 @@
 namespace Photobooth.Core;
 
-public sealed class SessionOptions
+/// <summary>
+/// Named Settings rather than Options because ASP.NET already has a
+/// SessionOptions (cookie sessions) that is implicitly in scope throughout the
+/// server project, and the collision forces an alias in every file that touches
+/// both.
+/// </summary>
+public sealed class SessionSettings
 {
     public const string SectionName = "Session";
 

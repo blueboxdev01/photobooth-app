@@ -1,10 +1,8 @@
 using System.Text.Json.Serialization;
+using Serilog;
 using Photobooth.Cameras;
 using Photobooth.Core;
 using Photobooth.Server;
-
-// ASP.NET has its own SessionOptions (cookie sessions), which we do not use.
-using SessionOptions = Photobooth.Core.SessionOptions;
 
 // ContentRoot must be the app folder, not the shell's working directory.
 // Without this, running the built DLL from anywhere but the project directory
@@ -20,8 +18,8 @@ builder.Services.Configure<WatchFolderOptions>(
     builder.Configuration.GetSection(WatchFolderOptions.SectionName));
 builder.Services.Configure<MockEosUtilityOptions>(
     builder.Configuration.GetSection(MockEosUtilityOptions.SectionName));
-builder.Services.Configure<SessionOptions>(
-    builder.Configuration.GetSection(SessionOptions.SectionName));
+builder.Services.Configure<SessionSettings>(
+    builder.Configuration.GetSection(SessionSettings.SectionName));
 
 // Relative paths resolve against the app folder rather than whatever directory
 // the shell happened to be in, so `dotnet run` and an unzipped published build
@@ -40,6 +38,19 @@ static string ResolveAppPath(string path) => Path.IsPathRooted(path)
     ? path
     : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path));
 
+// A rolling log on disk is what a remote tester actually sends back; console
+// output vanishes the moment they close the window.
+var logFolder = ResolveAppPath("data/logs");
+Directory.CreateDirectory(logFolder);
+builder.Host.UseSerilog((context, config) => config
+    .ReadFrom.Configuration(context.Configuration)
+    .WriteTo.Console()
+    .WriteTo.File(
+        Path.Combine(logFolder, "photobooth-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14,
+        shared: true));
+
 // States travel as names, not numbers: a snapshot showing "Collecting" is worth
 // a great deal more than one showing 2 when reading a field tester's logs.
 builder.Services.ConfigureHttpJsonOptions(
@@ -54,6 +65,7 @@ builder.Services.AddSingleton<WatchFolderCamera>();
 builder.Services.AddSingleton<ICameraDevice>(sp => sp.GetRequiredService<WatchFolderCamera>());
 builder.Services.AddSingleton<MockEosUtility>();
 builder.Services.AddSingleton<SessionEngine>();
+builder.Services.AddSingleton<DiagnosticsService>();
 builder.Services.AddSingleton<SessionCoordinator>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionCoordinator>());
 
@@ -73,7 +85,28 @@ app.MapGet("/api/state", (WatchFolderCamera camera, SessionEngine engine) => Res
         watchFolder = camera.WatchFolderPath,
     },
     session = engine.Snapshot,
+    build = new { version = DiagnosticsService.Version },
 }));
+
+// --- diagnostics: how a test in another building gets debugged ---
+
+app.MapGet("/api/diagnostics", (DiagnosticsService d) => Results.Ok(d.Snapshot()));
+
+// Tapped as the remote is pressed. The app cannot know when the shutter fired,
+// so a human marking the moment is the only way to measure press-to-file time.
+app.MapPost("/api/diagnostics/mark-press", (DiagnosticsService d) =>
+{
+    d.MarkPress();
+    return Results.Ok(new { markedAtUtc = DateTimeOffset.UtcNow });
+});
+
+app.MapGet("/api/diagnostics/bundle", (DiagnosticsService d, IConfiguration config) =>
+{
+    var bytes = DiagnosticsBundle.Create(
+        d.Snapshot(), ResolveAppPath("data/logs"), config);
+    var name = $"photobooth-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+    return Results.File(bytes, "application/zip", name);
+});
 
 app.MapPost("/api/session/arm", (SessionCoordinator c) => Results.Ok(c.Arm()));
 app.MapPost("/api/session/retake", (SessionEngine e) => Results.Ok(e.RetakeLast()));

@@ -121,3 +121,34 @@ button.primary:hover { background: #245a95; }
   display: flex; align-items: center; justify-content: center;
   color: #444a52; font-size: 26px; border-style: dashed;
 }
+
+/* ---------- diagnostics ---------- */
+
+.diagnostics { max-width: 1200px; }
+.diagnostics section { margin-bottom: 26px; }
+.diagnostics h2 {
+  font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+  padding-bottom: 5px; margin-bottom: 10px;
+}
+.diagnostics table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.diagnostics th {
+  text-align: left; font-weight: 600; color: var(--muted);
+  padding: 5px 10px 5px 0; vertical-align: top; white-space: nowrap;
+}
+.diagnostics td { padding: 5px 10px 5px 0; vertical-align: top; }
+.diagnostics thead th { border-bottom: 1px solid var(--line); }
+.diagnostics tbody tr:nth-child(even) { background: #191c21; }
+.diagnostics select {
+  font: inherit; background: #232830; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+}
+.diagnostics a, .operator header a { color: var(--accent); text-decoration: none; }
+.diagnostics a:hover { text-decoration: underline; }
+a.button {
+  display: inline-block; padding: 8px 14px; border-radius: 6px;
+  border: 1px solid #2f6ba8; background: #1d4b7d; color: var(--ink) !important;
+  text-decoration: none !important;
+}
+.good { color: var(--good); }
+.bad { color: var(--bad); }

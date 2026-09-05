@@ -43,6 +43,9 @@ public sealed class WatchFolderCamera : ICameraDevice
     private readonly ConcurrentDictionary<string, byte> _abandoned =
         new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly ConcurrentDictionary<string, byte> _ignoredByExtension =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _cts;
     private Task? _processor;
@@ -73,6 +76,13 @@ public sealed class WatchFolderCamera : ICameraDevice
 
     public event EventHandler<PhotoArrivedEventArgs>? PhotoArrived;
     public event EventHandler<CameraStatusEventArgs>? StatusChanged;
+
+    /// <summary>
+    /// Every decision, including the rejections. Rejections are the interesting
+    /// ones during a field test: "nothing happened" is impossible to debug
+    /// remotely, whereas "ignored IMG_0007.CR3: extension not watched" is not.
+    /// </summary>
+    public event EventHandler<IngestEvent>? IngestDecision;
 
     public Task ConnectAsync(CancellationToken cancellationToken = default)
     {
@@ -127,6 +137,7 @@ public sealed class WatchFolderCamera : ICameraDevice
         _seen.Clear();
         _attempts.Clear();
         _abandoned.Clear();
+        _ignoredByExtension.Clear();
     }
 
     /// <summary>Files given up on. Surfaced on the diagnostics page in M5.</summary>
@@ -141,7 +152,27 @@ public sealed class WatchFolderCamera : ICameraDevice
 
     private void Offer(string path)
     {
-        if (!HasWatchedExtension(path) || _seen.ContainsKey(path) || _abandoned.ContainsKey(path))
+        // Dotfiles are never photos -- and the diagnostics write-probe is one, so
+        // without this every poll would add an entry to the ignored set and a
+        // line to the ingest log the tester has to read past.
+        if (System.IO.Path.GetFileName(path).StartsWith('.'))
+        {
+            return;
+        }
+
+        if (!HasWatchedExtension(path))
+        {
+            // Reported once per file; the sweep re-sees it constantly otherwise.
+            if (_ignoredByExtension.TryAdd(path, 0))
+            {
+                Report(path, IngestOutcome.Rejected,
+                    $"extension {System.IO.Path.GetExtension(path)} is not watched");
+            }
+
+            return;
+        }
+
+        if (_seen.ContainsKey(path) || _abandoned.ContainsKey(path))
         {
             return;
         }
@@ -156,6 +187,10 @@ public sealed class WatchFolderCamera : ICameraDevice
             _inFlight.TryRemove(path, out _);
         }
     }
+
+    private void Report(string path, IngestOutcome outcome, string reason, long size = 0) =>
+        IngestDecision?.Invoke(this, new IngestEvent(
+            _time.GetUtcNow(), System.IO.Path.GetFileName(path), outcome, reason, size));
 
     private bool HasWatchedExtension(string path)
     {
@@ -243,6 +278,9 @@ public sealed class WatchFolderCamera : ICameraDevice
         {
             _logger.LogDebug("Ignoring {File}: {Size} bytes is below the minimum.",
                 info.Name, info.Length);
+            Report(path, IngestOutcome.Rejected,
+                $"{info.Length} bytes is below the {_options.MinimumFileSizeBytes} byte minimum",
+                info.Length);
             return;
         }
 
@@ -254,6 +292,9 @@ public sealed class WatchFolderCamera : ICameraDevice
             _logger.LogInformation(
                 "Ignoring {File}: written {Written}, before this session began {From}.",
                 info.Name, written, AcceptFrom);
+            Report(path, IngestOutcome.Rejected,
+                $"written {written:HH:mm:ss}, before this session began {AcceptFrom:HH:mm:ss}",
+                info.Length);
             return;
         }
 
@@ -264,6 +305,7 @@ public sealed class WatchFolderCamera : ICameraDevice
 
         var photo = new CapturedPhoto(info.FullName, info.Name, info.Length, _time.GetUtcNow());
         _logger.LogInformation("Accepted {File} ({Size} KB)", info.Name, info.Length / 1024);
+        Report(path, IngestOutcome.Accepted, "complete and readable", info.Length);
 
         if (Status == CameraStatus.Faulted)
         {
@@ -284,6 +326,8 @@ public sealed class WatchFolderCamera : ICameraDevice
             _logger.LogWarning(
                 "{File} has not finished being written (attempt {Attempt} of {Max}).",
                 name, attempts, _options.MaxCompletionAttempts);
+            Report(path, IngestOutcome.Rejected,
+                $"still being written (attempt {attempts} of {_options.MaxCompletionAttempts})");
             return;
         }
 
@@ -291,6 +335,8 @@ public sealed class WatchFolderCamera : ICameraDevice
         _logger.LogError(
             "Gave up on {File} after {Attempts} attempts; it never became readable. " +
             "Check the tether and EOS Utility.", name, attempts);
+        Report(path, IngestOutcome.Abandoned,
+            $"never became readable after {attempts} attempts");
         SetStatus(CameraStatus.Faulted,
             $"Gave up on {name}: the file never finished transferring.");
     }

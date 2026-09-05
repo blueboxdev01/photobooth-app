@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { selectedWebcamId } from './useWebcams'
 
 /**
  * The guest-facing live preview.
@@ -26,8 +27,16 @@ export function PosingMirror({ slotAspect = 4 / 3 }: { slotAspect?: number }) {
     let stream: MediaStream | null = null
     let cancelled = false
 
+    // The machine may have several cameras -- a laptop's built-in one and the
+    // booth webcam. Whichever was picked on the diagnostics page wins.
+    const deviceId = selectedWebcamId()
     navigator.mediaDevices
-      ?.getUserMedia({ video: { width: 1280, height: 720 }, audio: false })
+      ?.getUserMedia({
+        video: deviceId
+          ? { deviceId: { exact: deviceId }, width: 1280, height: 720 }
+          : { width: 1280, height: 720 },
+        audio: false,
+      })
       .then((s) => {
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop())
