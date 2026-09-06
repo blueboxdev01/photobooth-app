@@ -90,7 +90,14 @@ public static class SettingsEndpoints
             IOptions<ArchiveOptions> archiveOptions,
             IOptions<SessionSettings> session) =>
         {
-            var settings = store.Current;
+            // Staged on a copy and validated in full before anything is applied.
+            // Mutating the live settings as we went meant a rejected request could
+            // still leave the camera re-pointed and the photo bounds changed, and
+            // the next successful save would write those to disk.
+            var settings = store.Current.Clone();
+
+            string? newWatchFolder = null;
+            string? newOutputFolder = null;
 
             if (update.WatchFolder is { } watch)
             {
@@ -100,11 +107,7 @@ public static class SettingsEndpoints
                     return Results.BadRequest(new { error = problem });
                 }
 
-                settings.WatchFolder = resolved;
-
-                // Applied immediately: making someone restart to find out whether
-                // they typed the right path would defeat the point.
-                await camera.ChangeFolderAsync(resolved);
+                settings.WatchFolder = newWatchFolder = resolved;
             }
 
             if (update.OutputFolder is { } output)
@@ -115,7 +118,10 @@ public static class SettingsEndpoints
                     return Results.BadRequest(new { error = problem });
                 }
 
-                if (string.Equals(resolved, camera.WatchFolderPath, StringComparison.OrdinalIgnoreCase))
+                // Compared against the watch folder this request would leave in
+                // place, not the one currently in force.
+                var watchAfter = newWatchFolder ?? camera.WatchFolderPath;
+                if (string.Equals(resolved, watchAfter, StringComparison.OrdinalIgnoreCase))
                 {
                     return Results.BadRequest(new
                     {
@@ -124,8 +130,7 @@ public static class SettingsEndpoints
                     });
                 }
 
-                settings.OutputFolder = resolved;
-                archiveOptions.Value.Folder = resolved;
+                settings.OutputFolder = newOutputFolder = resolved;
             }
 
             if (update.CountdownSeconds is { } countdown)
@@ -136,7 +141,6 @@ public static class SettingsEndpoints
                 }
 
                 settings.CountdownSeconds = countdown;
-                session.Value.CountdownSeconds = countdown;
             }
 
             if (update.NoPhotoTimeoutSeconds is { } timeout)
@@ -150,7 +154,6 @@ public static class SettingsEndpoints
                 }
 
                 settings.NoPhotoTimeoutSeconds = timeout;
-                session.Value.NoPhotoTimeoutSeconds = timeout;
             }
 
             if (update.DisplayBackgroundColor is { } colour)
@@ -166,17 +169,44 @@ public static class SettingsEndpoints
                 settings.DisplayBackgroundColor = colour.ToUpperInvariant();
             }
 
-            if (update.ClearDisplayBackgroundImage == true)
-            {
-                DeleteBackgroundImage(store, settings);
-            }
-
-            var layout = ApplyLayout(update, settings, templates);
+            // Checked before anything is committed; the template is only rewritten
+            // in the apply pass below.
+            var layout = ApplyLayout(update, settings, templates, write: false);
             if (layout.Error is not null)
             {
                 return Results.BadRequest(new { error = layout.Error });
             }
 
+            // ---- everything validated, so apply ----
+
+            if (newWatchFolder is not null)
+            {
+                // Applied immediately: making someone restart to find out whether
+                // they typed the right path would defeat the point.
+                await camera.ChangeFolderAsync(newWatchFolder);
+            }
+
+            if (newOutputFolder is not null)
+            {
+                archiveOptions.Value.Folder = newOutputFolder;
+            }
+
+            if (settings.CountdownSeconds is { } appliedCountdown)
+            {
+                session.Value.CountdownSeconds = appliedCountdown;
+            }
+
+            if (settings.NoPhotoTimeoutSeconds is { } appliedTimeout)
+            {
+                session.Value.NoPhotoTimeoutSeconds = appliedTimeout;
+            }
+
+            if (update.ClearDisplayBackgroundImage == true)
+            {
+                DeleteBackgroundImage(store, settings);
+            }
+
+            layout = ApplyLayout(update, settings, templates, write: true);
             store.Save(settings);
 
             var current = templates.Current;
@@ -309,8 +339,16 @@ public static class SettingsEndpoints
     /// operator a way to drive the template from a number instead of by dragging
     /// rectangles.
     /// </summary>
+    /// <param name="write">
+    /// False validates only, leaving both the settings copy and the template file
+    /// untouched. The endpoint runs this pass first so a rejected request cannot
+    /// have already changed the bounds or rewritten a template.
+    /// </param>
     private static LayoutResult ApplyLayout(
-        SettingsUpdate update, BoothSettings settings, FileTemplateProvider templates)
+        SettingsUpdate update,
+        BoothSettings settings,
+        FileTemplateProvider templates,
+        bool write)
     {
         var wantsBounds = update.MinPhotos is not null || update.MaxPhotos is not null;
         var wantsLayout = update.PhotoCount is not null || update.CanvasPresetId is not null;
@@ -334,9 +372,6 @@ public static class SettingsEndpoints
             return new LayoutResult("The minimum number of photos cannot exceed the maximum.");
         }
 
-        settings.MinPhotos = min;
-        settings.MaxPhotos = max;
-
         var current = templates.Current;
         var count = update.PhotoCount ?? settings.PhotoCount ?? current.ShotCount;
 
@@ -355,10 +390,20 @@ public static class SettingsEndpoints
             }
 
             canvas = preset.Canvas;
-            settings.CanvasPresetId = preset.Id;
         }
 
+        if (!write)
+        {
+            return new LayoutResult(null);
+        }
+
+        settings.MinPhotos = min;
+        settings.MaxPhotos = max;
         settings.PhotoCount = count;
+        if (update.CanvasPresetId is not null)
+        {
+            settings.CanvasPresetId = CanvasPresets.Find(update.CanvasPresetId)!.Id;
+        }
 
         // Regenerated rather than nudged: the operator asked for a number of
         // photos on a given canvas, and even placement is the whole point.

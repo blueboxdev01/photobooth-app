@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AppShell } from './AppShell'
 import { Settings } from './Settings'
 import { useWebcams } from './useWebcams'
 
@@ -65,16 +66,17 @@ export function Diagnostics() {
     setMarked(new Date().toLocaleTimeString())
   }
 
-  if (!d) return <main className="operator"><p className="muted">Loading…</p></main>
+  if (!d) {
+    return (
+      <AppShell page="/diagnostics">
+        <p className="muted">Loading…</p>
+      </AppShell>
+    )
+  }
 
   return (
-    <main className="operator diagnostics">
-      <header>
-        <h1>Diagnostics</h1>
-        <span className="pill">{d.build.version}</span>
-        <span className={`pill pill--${d.camera.status}`}>Camera {d.camera.status}</span>
-        <a href="/operator">← operator</a>
-      </header>
+    <AppShell page="/diagnostics">
+      <div className="diagnostics">
 
       <Settings onChanged={() => void load()} />
 
@@ -219,6 +221,7 @@ export function Diagnostics() {
         </p>
         <a className="button" href="/api/diagnostics/bundle">Download diagnostics bundle</a>
       </section>
-    </main>
+      </div>
+    </AppShell>
   )
 }

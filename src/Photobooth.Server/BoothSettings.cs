@@ -55,6 +55,16 @@ public sealed class BoothSettings
 
     /// <summary>File name of an uploaded backdrop image, drawn over the colour.</summary>
     public string? DisplayBackgroundImage { get; set; }
+
+    /// <summary>
+    /// A working copy, so a request can be validated in full before anything is
+    /// committed.
+    ///
+    /// <see cref="SettingsStore.Current"/> hands out the live instance, so
+    /// mutating it while validating leaves a rejected request's changes in
+    /// memory -- and the next successful save then writes them to disk.
+    /// </summary>
+    public BoothSettings Clone() => (BoothSettings)MemberwiseClone();
 }
 
 /// <summary>

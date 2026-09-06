@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppShell } from './AppShell'
 
 type Fit = 'Cover' | 'Contain'
 
@@ -76,7 +77,11 @@ export function Templates() {
   }, [load])
 
   if (!meta || !draft) {
-    return <main className="operator"><p className="muted">Loading…</p></main>
+    return (
+      <AppShell page="/templates">
+        <p className="muted">Loading…</p>
+      </AppShell>
+    )
   }
 
   const aspect = draft.canvas.width / draft.canvas.height
@@ -202,15 +207,14 @@ export function Templates() {
   }
 
   return (
-    <main className="operator templates">
-      <header>
-        <h1>Templates</h1>
-        <span className="pill">{draft.slots.length} slots</span>
-        {meta.usingBuiltInFallback && (
-          <span className="pill pill--Faulted">built-in fallback</span>
-        )}
-        <a href="/operator">← operator</a>
-      </header>
+    <AppShell page="/templates">
+      <div className="templates">
+        <p className="controls">
+          <span className="pill">{draft.slots.length} slots</span>
+          {meta.usingBuiltInFallback && (
+            <span className="pill pill--Faulted">built-in fallback</span>
+          )}
+        </p>
 
       {status && <p className={status.ok ? 'muted' : 'banner'}>{status.text}</p>}
 
@@ -383,6 +387,7 @@ export function Templates() {
           </div>
         )}
       </div>
-    </main>
+      </div>
+    </AppShell>
   )
 }
