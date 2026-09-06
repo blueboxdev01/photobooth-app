@@ -26,14 +26,20 @@ it.
 1. Unzip the release and run `Photobooth.Server.exe`. Nothing to install — no
    .NET, no Node. Windows SmartScreen may warn about an unsigned binary; choose
    *More info → Run anyway*.
-2. Open <http://localhost:5000/operator> and <http://localhost:5000/diagnostics>.
+2. Open <http://localhost:5000/operator>. Everything else is reachable from the
+   left-hand rail: **Session**, **Templates** and **Setup**. The rail also has a
+   light/dark switch at the bottom -- a booth is set up in daylight and run in a
+   dark room, so use whichever is easier on your eyes.
 3. On the camera: `Settings → USB Connection App → Photo Import/Remote Control`.
    Set manual exposure, **manual white balance** (not AWB), fixed ISO,
    **JPEG only** (not RAW), auto power-off disabled.
 4. Start EOS Utility and choose remote shooting. Note the folder it saves to.
-5. On `/diagnostics` under **Setup**, paste that folder into **Watch folder**,
-   press **Check folder**, then **Save and apply**. It takes effect immediately.
-6. Still on `/diagnostics`, pick your webcam under **Cameras → Preview**.
+5. Go to **Setup** and paste that folder into **Watch folder**, press **Check**,
+   then **Save watch folder**. It takes effect immediately.
+6. Set an **Output folder** too -- somewhere findable such as
+   `C:\Users\you\Pictures\PhotoboothSessions`. Finished sessions are filed there,
+   one folder per guest. It must be a different folder from the watch one.
+7. Still on **Setup**, pick your webcam under **Cameras -> Preview**.
 
 > You no longer need to make EOS Utility save anywhere in particular — point the
 > app at wherever it already saves.
@@ -75,9 +81,9 @@ names under **Watch folder**.
 ## Test 3 — How long from pressing the remote to the file appearing?
 
 We guessed and set a 20-second timeout. Only you can measure the real number.
-Once you have it, set the timeout under **Setup** on the same page.
+Once you have it, set the timeout under **Setup -> Timings**.
 
-1. On `/diagnostics`, hit **Mark shutter press** at the same moment you press the
+1. On **Setup**, hit **Mark shutter press** at the same moment you press the
    remote.
 2. Repeat about five times.
 3. Read off the average and worst figures.
@@ -121,12 +127,14 @@ photo on the strip. For each, note what the operator screen said.
 Accept a session and look at the composited 2×6 strip.
 
 - [ ] Three photos, right order, right way up
-- [ ] The strip is saved to `data/sessions/<name>/` with the raw photos and a
-      `session.json` beside it
+- [ ] The strip is saved to your **output folder**, in its own subfolder, with
+      the raw photos and a `session.json` beside it
 - [ ] The originals are **still** in the watch folder, untouched
 
-If the layout is wrong, `/templates` lets you drag the slots and re-render
-without touching any code. Tell us what you changed.
+If the layout is wrong you can fix it yourself. **Setup -> Strip layout** sets
+how many photos and the output size (portrait strip or landscape), placing the
+slots evenly. **Templates** lets you drag individual slots and re-render. Tell us
+what you changed.
 
 ---
 
@@ -149,7 +157,7 @@ lens rather than on its axis.
 ## Test 8 — Both cameras at once
 
 - [ ] Webcam preview runs while the R50 is tethered and shooting
-- [ ] Picking a different webcam on `/diagnostics` changes the mirror
+- [ ] Picking a different webcam on **Setup** changes the mirror
 - [ ] The preview is mirrored (raise your right hand; it should appear on the
       right side of the screen, like a mirror)
 
@@ -157,13 +165,13 @@ lens rather than on its axis.
 
 ## Sending results back
 
-On `/diagnostics`, click **Download diagnostics bundle** and send the ZIP along
-with this filled-in sheet.
+On **Setup**, click **Download diagnostics bundle** and send the ZIP along with
+this filled-in sheet.
 
 It contains the logs, every ingest decision with its reason, the settings the
 build was running, and the version. **It contains no photographs** — if a
 particular photo matters, send that one deliberately.
 
-Also note the version string from the top of the diagnostics page:
+Also note the version string at the foot of the left-hand rail:
 
 **Version:** ______________________

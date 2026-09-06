@@ -22,6 +22,7 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M6 Remote hardware bring-up | waiting on the camera |
 | M7 Google Drive delivery + QR | not started |
 | M8 Frame upload + slot editor | done — `/templates` |
+| Operator console | done — dashboard, light/dark, layout and folder settings |
 
 92 tests passing. Nothing has yet been verified against a real camera.
 
