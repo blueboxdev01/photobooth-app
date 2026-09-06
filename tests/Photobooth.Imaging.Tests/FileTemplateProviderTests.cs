@@ -19,6 +19,15 @@ public sealed class FileTemplateProviderTests : IDisposable
         new(Options.Create(new TemplateOptions { Folder = _folder, Selected = selected }),
             NullLogger<FileTemplateProvider>.Instance);
 
+    private static readonly TemplateCanvas Canvas = new(600, 1800, 300);
+
+    private static readonly TemplateSlot[] Slots =
+    [
+        new(0.05, 0.02, 0.9, 0.22),
+        new(0.05, 0.26, 0.9, 0.22),
+        new(0.05, 0.50, 0.9, 0.22),
+    ];
+
     private static StripTemplate Template(int slots, string name = "Test") => new(
         name,
         new TemplateCanvas(600, 1800, 300),
@@ -127,32 +136,43 @@ public sealed class FileTemplateProviderTests : IDisposable
     }
 
     [Fact]
-    public void Frame_art_must_be_a_png()
+    public void Art_that_is_neither_png_nor_jpeg_is_refused()
     {
-        // A JPEG has no transparency, so it would paint solidly over every photo.
         var provider = Build();
-        var jpegMagic = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0 };
+        var notAnImage = "this is not an image at all"u8.ToArray();
 
-        var ex = Assert.Throws<ArgumentException>(() => provider.SaveOverlay("frame", jpegMagic));
+        var ex = Assert.Throws<ArgumentException>(
+            () => provider.SaveArt("frame", notAnImage, Canvas, Slots));
 
-        Assert.Contains("PNG", ex.Message);
+        Assert.Contains("PNG or JPEG", ex.Message);
         Assert.Null(provider.OverlayPath("frame"));
     }
 
     [Fact]
-    public void A_real_png_is_accepted_and_findable()
+    public void Uploaded_art_is_stored_and_findable()
     {
         var provider = Build();
-        var png = new byte[]
-        {
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0, 0, 0, 0, 0, 0, 0, 0,
-        };
 
-        var saved = provider.SaveOverlay("frame", png);
+        var art = provider.SaveArt("frame", ArtFixtures.OpaquePng(Canvas), Canvas, Slots);
 
-        Assert.Equal("frame.png", saved);
+        Assert.Equal("frame.png", provider.ArtFileName("frame"));
         Assert.NotNull(provider.OverlayPath("frame"));
+        Assert.Equal(Canvas.Width, art.Width);
+        Assert.Equal(Canvas.Height, art.Height);
+    }
+
+    [Fact]
+    public void Replacing_png_art_with_a_jpeg_leaves_no_stale_file_behind()
+    {
+        // One art file per template. A leftover .png would otherwise still be
+        // found and drawn in preference to the .jpg just uploaded.
+        var provider = Build();
+        provider.SaveArt("frame", ArtFixtures.OpaquePng(Canvas), Canvas, Slots);
+
+        provider.SaveArt("frame", ArtFixtures.Jpeg(Canvas), Canvas, Slots);
+
+        Assert.Equal("frame.jpg", provider.ArtFileName("frame"));
+        Assert.Single(Directory.EnumerateFiles(_folder, "frame.*"));
     }
 
     [Fact]

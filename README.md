@@ -24,7 +24,7 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M8 Frame upload + slot editor | done — `/templates` |
 | Operator console | done — dashboard, light/dark, layout and folder settings |
 
-92 tests passing. Nothing has yet been verified against a real camera.
+99 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
 and a `session.json` describing them. From M7 the Drive folder receives a copy of
@@ -74,6 +74,39 @@ before real hardware exists.
 See **[docs/FIELD-TEST.md](docs/FIELD-TEST.md)**. The short version: the build
 runs standalone, uploads nothing, and `/diagnostics` reports what the app saw,
 what it rejected and why, and exactly which commit produced the answer.
+
+## Template art
+
+Art is uploaded in **Templates** and can be either kind. Which one it is gets
+**detected from the image**, by checking whether it is transparent where the
+photos go:
+
+| | |
+|---|---|
+| **Backdrop** | Opaque across the photo areas. Drawn *behind*, with the photos on top. PNG or JPEG |
+| **Frame** | Transparent where the photos go. Drawn *over* them, showing them through its windows. PNG only |
+
+Judging by transparency **inside the photo slots** rather than overall is what
+makes this reliable: a frame with a wide solid border is mostly opaque and is
+still a frame. If the guess is ever wrong, the editor has a one-click override.
+
+Upload at exactly these pixel sizes — all at 300 DPI:
+
+| Output size | Pixels |
+|---|---|
+| Photo strip 2×6 | 600 × 1800 |
+| Portrait 4×6 | 1200 × 1800 |
+| Portrait 5×7 | 1500 × 2100 |
+| Landscape 6×4 | 1800 × 1200 |
+| Landscape 7×5 | 2100 × 1500 |
+
+Anything else is scaled to **fill and centre-crop**, so proportions are never
+distorted but the edges get trimmed. The editor states the expected size next to
+the upload control, and warns when what you uploaded does not match.
+
+Photo slots can be dragged and resized freely in the editor. Note that changing
+the photo count or output size in **Setup** regenerates the slots evenly and
+discards manual positioning, so settle those first.
 
 ## Upgrading a booth
 

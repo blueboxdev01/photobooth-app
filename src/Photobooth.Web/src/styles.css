@@ -406,12 +406,18 @@ a.button, .btn.button {
   position: relative; border-radius: var(--radius-sm); overflow: hidden;
   box-shadow: var(--shadow); touch-action: none; user-select: none;
 }
-.stagebox__overlay {
+.stagebox__art {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  pointer-events: none;   /* the frame must never swallow a drag */
+  /* Matches the compositor, which covers the canvas and centre-crops. */
+  object-fit: cover;
+  pointer-events: none;   /* art must never swallow a drag */
 }
+/* A backdrop sits under the photos; a frame sits over them. */
+.stagebox__art--behind { z-index: 0; }
+.stagebox__art--front { z-index: 2; }
+
 .slot {
-  position: absolute; cursor: move; overflow: hidden;
+  position: absolute; z-index: 1; cursor: move; overflow: hidden;
   outline: 2px dashed color-mix(in srgb, var(--accent) 85%, transparent);
   outline-offset: -2px;
 }

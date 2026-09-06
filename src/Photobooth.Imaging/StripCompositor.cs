@@ -40,12 +40,22 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         var canvas = surface.Canvas;
         canvas.Clear(ParseColour(template.Background));
 
+        // A backdrop goes down before the photos so they sit on top of it; a frame
+        // goes over them and shows them through its transparent windows.
+        if (template.Art == ArtLayer.Behind)
+        {
+            DrawArt(canvas, template, templateFolder);
+        }
+
         for (var i = 0; i < template.Slots.Count; i++)
         {
             DrawSlot(canvas, template, template.Slots[i], photoPaths[i]);
         }
 
-        DrawOverlay(canvas, template, templateFolder);
+        if (template.Art == ArtLayer.InFront)
+        {
+            DrawArt(canvas, template, templateFolder);
+        }
 
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Jpeg, jpegQuality);
@@ -62,9 +72,9 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         JpegDensity.Stamp(outputPath, template.Canvas.Dpi);
 
         logger.LogInformation(
-            "Composed {Output} ({Width}x{Height} at {Dpi} DPI, {Slots} photos)",
+            "Composed {Output} ({Width}x{Height} at {Dpi} DPI, {Slots} photos, art {Art})",
             Path.GetFileName(outputPath), template.Canvas.Width, template.Canvas.Height,
-            template.Canvas.Dpi, template.Slots.Count);
+            template.Canvas.Dpi, template.Slots.Count, template.Art);
     }
 
     private void DrawSlot(SKCanvas canvas, StripTemplate template, TemplateSlot slot, string photoPath)
@@ -112,7 +122,7 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         return new SKRect(0, topInset, width, height - topInset);
     }
 
-    private void DrawOverlay(SKCanvas canvas, StripTemplate template, string templateFolder)
+    private void DrawArt(SKCanvas canvas, StripTemplate template, string templateFolder)
     {
         if (string.IsNullOrWhiteSpace(template.Overlay))
         {
@@ -122,20 +132,28 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         var path = Path.Combine(templateFolder, template.Overlay);
         if (!File.Exists(path))
         {
-            logger.LogWarning("Overlay {Overlay} not found; the strip will have no frame art.", path);
+            logger.LogWarning("Art {Art} not found; the strip will have none.", path);
             return;
         }
 
         using var overlay = SKBitmap.Decode(path);
         if (overlay is null)
         {
-            logger.LogWarning("Overlay {Overlay} could not be decoded.", path);
+            logger.LogWarning("Art {Art} could not be decoded.", path);
             return;
         }
 
         var full = new SKRect(0, 0, template.Canvas.Width, template.Canvas.Height);
+
+        // Cover-cropped rather than stretched to the canvas. Art drawn at a
+        // different aspect ratio used to come out visibly distorted; centre-
+        // cropping loses the edges instead, which is the lesser sin and matches
+        // how photos are fitted into their slots.
+        var source = CoverCrop(
+            overlay.Width, overlay.Height, template.Canvas.Width / (float)template.Canvas.Height);
+
         using var paint = new SKPaint { IsAntialias = true };
-        canvas.DrawBitmap(overlay, new SKRect(0, 0, overlay.Width, overlay.Height), full, paint);
+        canvas.DrawBitmap(overlay, source, full, paint);
     }
 
     private static SKColor ParseColour(string value) =>

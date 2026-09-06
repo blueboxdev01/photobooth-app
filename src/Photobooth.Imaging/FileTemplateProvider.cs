@@ -142,49 +142,95 @@ public sealed class FileTemplateProvider : ITemplateProvider
         return Select(name);
     }
 
-    /// <summary>Stores frame art for a template and points the template at it.</summary>
-    public string SaveOverlay(string name, ReadOnlySpan<byte> png)
+    /// <summary>
+    /// Stores art for a template and works out whether it is a frame or a backdrop.
+    ///
+    /// JPEG is accepted as well as PNG now that art can sit behind the photos --
+    /// a backdrop needs no transparency, and refusing JPEGs would rule out most
+    /// of the images people actually have.
+    /// </summary>
+    public ArtInspection SaveArt(
+        string name,
+        ReadOnlySpan<byte> data,
+        TemplateCanvas canvas,
+        IReadOnlyList<TemplateSlot> slots)
     {
         if (!IsValidName(name))
         {
             throw new ArgumentException("Invalid template name.", nameof(name));
         }
 
-        if (!LooksLikePng(png))
-        {
-            throw new ArgumentException(
-                "The frame must be a PNG. Transparency is what lets the photos show through.");
-        }
+        var extension = ImageExtension(data)
+            ?? throw new ArgumentException(
+                "The art must be a PNG or JPEG. A frame needs PNG transparency where the "
+                + "photos go; a backdrop can be either.");
+
+        var inspection = ArtInspector.Inspect(data, canvas, slots);
 
         Directory.CreateDirectory(Folder);
-        var fileName = name + ".png";
-        File.WriteAllBytes(Path.Combine(Folder, fileName), png.ToArray());
-        _logger.LogInformation("Saved overlay {File} ({Bytes} bytes).", fileName, png.Length);
+
+        // One art file per template whatever its format, so switching from PNG to
+        // JPEG cannot leave the old one behind to be picked up later.
+        foreach (var stale in Directory.EnumerateFiles(Folder, name + ".*")
+                     .Where(f => !f.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { File.Delete(stale); } catch { /* best effort */ }
+        }
+
+        var fileName = name + extension;
+        File.WriteAllBytes(Path.Combine(Folder, fileName), data.ToArray());
+
+        _logger.LogInformation(
+            "Saved art {File} ({Bytes} bytes, {Width}x{Height}) as a {Layer} layer; "
+            + "{Fraction:P0} of the photo area is transparent.",
+            fileName, data.Length, inspection.Width, inspection.Height,
+            inspection.Layer, inspection.TransparentFractionInSlots);
 
         lock (_sync)
         {
             _current = null;   // reload so the new art is picked up
         }
 
-        return fileName;
+        return inspection with { };
     }
 
-    public string? OverlayPath(string name)
+    /// <summary>The art file stored for a template, whatever its extension.</summary>
+    public string? ArtFileName(string name)
     {
-        if (!IsValidName(name))
+        if (!IsValidName(name) || !Directory.Exists(Folder))
         {
             return null;
         }
 
-        var path = Path.Combine(Folder, name + ".png");
-        return File.Exists(path) ? path : null;
+        return Directory.EnumerateFiles(Folder, name + ".*")
+            .Select(Path.GetFileName)
+            .FirstOrDefault(f => f is not null
+                && !f.EndsWith(".json", StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>PNG magic number. A JPEG here would silently paint over the photos.</summary>
-    private static bool LooksLikePng(ReadOnlySpan<byte> data) =>
-        data.Length > 8
-        && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47
-        && data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A;
+    public string? OverlayPath(string name)
+    {
+        var file = ArtFileName(name);
+        return file is null ? null : Path.Combine(Folder, file);
+    }
+
+    /// <summary>Magic numbers; the extension a browser sends is not evidence.</summary>
+    private static string? ImageExtension(ReadOnlySpan<byte> data)
+    {
+        if (data.Length > 8
+            && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47
+            && data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A)
+        {
+            return ".png";
+        }
+
+        if (data.Length > 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+        {
+            return ".jpg";
+        }
+
+        return null;
+    }
 
     /// <summary>Switch templates. Changes how many photos the next session takes.</summary>
     public StripTemplate Select(string name)

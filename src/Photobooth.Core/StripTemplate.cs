@@ -32,9 +32,25 @@ public sealed record TemplateSlot(double X, double Y, double W, double H, SlotFi
         (int)Math.Round(H * canvas.Height));
 }
 
+/// <summary>Where a template's art sits relative to the photos.</summary>
+public enum ArtLayer
+{
+    /// <summary>
+    /// A frame: drawn over the photos, with transparent windows for them to show
+    /// through. What the shipped classic-2x6 art is.
+    /// </summary>
+    InFront,
+
+    /// <summary>
+    /// A backdrop: drawn beneath the photos, which then sit on top of it. Needs
+    /// no transparency at all, so it can be a JPEG.
+    /// </summary>
+    Behind,
+}
+
 /// <summary>
-/// A strip layout: the canvas, where the photos go, and optional frame art drawn
-/// over the top.
+/// A strip layout: the canvas, where the photos go, and optional art drawn
+/// either behind or over them.
 ///
 /// The slot count is the number of photos a session takes. Deriving it here
 /// rather than from a separate setting means a three-frame strip cannot end up
@@ -45,7 +61,8 @@ public sealed record StripTemplate(
     TemplateCanvas Canvas,
     IReadOnlyList<TemplateSlot> Slots,
     string? Overlay = null,
-    string Background = "#FFFFFF")
+    string Background = "#FFFFFF",
+    ArtLayer Art = ArtLayer.InFront)
 {
     public int ShotCount => Slots.Count;
 }

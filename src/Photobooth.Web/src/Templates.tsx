@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './AppShell'
 
 type Fit = 'Cover' | 'Contain'
+type ArtLayer = 'InFront' | 'Behind'
 
 interface Slot { x: number; y: number; w: number; h: number; fit: Fit }
 interface Canvas { width: number; height: number; dpi: number }
@@ -11,6 +12,7 @@ interface Template {
   slots: Slot[]
   overlay: string | null
   background: string
+  art: ArtLayer
 }
 
 interface TemplatesResponse {
@@ -195,9 +197,12 @@ export function Templates() {
       setStatus({ ok: false, text: body.error ?? 'Upload failed' })
       return
     }
-    update({ overlay: body.overlay })
+
+    // The server decides the layer by looking at the image; the editor follows it
+    // so the preview and the rendered strip cannot disagree.
+    update({ overlay: body.overlay, art: body.layer as ArtLayer })
     setOverlayVersion((v) => v + 1)
-    setStatus({ ok: true, text: `Frame uploaded. Save to keep it.` })
+    setStatus({ ok: true, text: `${body.note} Save to keep it.` })
   }
 
   const selectTemplate = async (which: string) => {
@@ -230,6 +235,17 @@ export function Templates() {
             }}
             onPointerDown={() => setSelectedSlot(-1)}
           >
+            {/* A backdrop is painted first so the photos sit on top of it, exactly
+                as the compositor does. */}
+            {draft.overlay && draft.art === 'Behind' && (
+              <img
+                className="stagebox__art stagebox__art--behind"
+                style={{ opacity: overlayOpacity }}
+                src={`/api/templates/${name}/overlay?v=${overlayVersion}`}
+                alt=""
+                draggable={false}
+              />
+            )}
             {draft.slots.map((slot, i) => (
               <div
                 key={i}
@@ -255,9 +271,9 @@ export function Templates() {
               </div>
             ))}
 
-            {draft.overlay && (
+            {draft.overlay && draft.art === 'InFront' && (
               <img
-                className="stagebox__overlay"
+                className="stagebox__art stagebox__art--front"
                 style={{ opacity: overlayOpacity }}
                 src={`/api/templates/${name}/overlay?v=${overlayVersion}`}
                 alt=""
@@ -325,16 +341,35 @@ export function Templates() {
           </section>
 
           <section>
-            <h2>Frame art</h2>
-            <input type="file" accept="image/png"
+            <h2>Template art</h2>
+            <input type="file" accept="image/png,image/jpeg"
                    onChange={(e) => {
                      const f = e.target.files?.[0]
                      if (f) void uploadOverlay(f)
                    }} />
             <p className="muted small">
-              PNG, drawn on top. Leave the photo areas transparent so the photos
-              show through.
+              Upload at <strong>{draft.canvas.width}&times;{draft.canvas.height}px</strong> for
+              this size. Anything else is scaled to fill and centre-cropped, so the
+              edges may be trimmed.
             </p>
+            <p className="muted small">
+              A <strong>backdrop</strong> can be PNG or JPEG; the photos are drawn
+              on top of it. A <strong>frame</strong> must be a PNG that is
+              transparent where the photos go, and is drawn over them.
+            </p>
+
+            {draft.overlay && (
+              <p className="muted small">
+                Using it as a{' '}
+                <strong>{draft.art === 'InFront' ? 'frame' : 'backdrop'}</strong>.{' '}
+                <button className="linkish"
+                        onClick={() => update({
+                          art: draft.art === 'InFront' ? 'Behind' : 'InFront',
+                        })}>
+                  use as a {draft.art === 'InFront' ? 'backdrop' : 'frame'} instead
+                </button>
+              </p>
+            )}
             {draft.overlay && (
               <label>Show at
                 <input type="range" min={0} max={1} step={0.05} value={overlayOpacity}

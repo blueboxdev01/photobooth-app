@@ -108,8 +108,28 @@ public static class TemplateEndpoints
 
             try
             {
-                var saved = templates.SaveOverlay(name, buffer.ToArray());
-                return Results.Ok(new { overlay = saved, bytes = buffer.Length });
+                // Detection needs the layout the art will be used with, since the
+                // question is whether it is transparent where the photos go.
+                var target = templates.Current;
+                var art = templates.SaveArt(
+                    name, buffer.ToArray(), target.Canvas, target.Slots);
+
+                var expected = target.Canvas;
+                var matches = art.Width == expected.Width && art.Height == expected.Height;
+
+                return Results.Ok(new
+                {
+                    overlay = templates.ArtFileName(name),
+                    layer = art.Layer.ToString(),
+                    bytes = buffer.Length,
+                    width = art.Width,
+                    height = art.Height,
+                    expectedWidth = expected.Width,
+                    expectedHeight = expected.Height,
+                    sizeMatches = matches,
+                    transparentFractionInSlots = art.TransparentFractionInSlots,
+                    note = Describe(art, expected, matches),
+                });
             }
             catch (ArgumentException ex)
             {
@@ -190,6 +210,28 @@ public static class TemplateEndpoints
                 try { File.Delete(temp); } catch { /* best effort */ }
             }
         });
+    }
+
+    /// <summary>
+    /// Explains the verdict in the operator's terms, rather than leaving them to
+    /// discover on a printed strip that the art went the wrong side of the photos.
+    /// </summary>
+    private static string Describe(ArtInspection art, TemplateCanvas expected, bool sizeMatches)
+    {
+        var layer = art.Layer == ArtLayer.InFront
+            ? $"Detected as a frame: {art.TransparentFractionInSlots:P0} of the photo area is "
+              + "transparent, so it will be drawn over the photos."
+            : "Detected as a backdrop: the photo area is not transparent, so the photos will "
+              + "be drawn on top of it.";
+
+        if (sizeMatches)
+        {
+            return layer;
+        }
+
+        return layer + $" It is {art.Width}x{art.Height}, but this size expects "
+             + $"{expected.Width}x{expected.Height} -- it will be scaled to fill and "
+             + "centre-cropped, so the edges may be trimmed.";
     }
 
     /// <summary>Sample photos, repeated if the template has more slots than samples.</summary>
