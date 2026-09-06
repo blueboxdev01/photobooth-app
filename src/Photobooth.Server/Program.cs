@@ -82,6 +82,13 @@ builder.Services.PostConfigure<WatchFolderOptions>(o =>
         o.Path = settingsStore.Current.WatchFolder!;
     }
 });
+builder.Services.PostConfigure<ArchiveOptions>(o =>
+{
+    if (!string.IsNullOrWhiteSpace(settingsStore.Current.OutputFolder))
+    {
+        o.Folder = settingsStore.Current.OutputFolder!;
+    }
+});
 builder.Services.PostConfigure<SessionSettings>(o =>
 {
     o.CountdownSeconds = settingsStore.Current.CountdownSeconds ?? o.CountdownSeconds;

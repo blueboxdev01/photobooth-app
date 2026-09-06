@@ -23,7 +23,7 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M7 Google Drive delivery + QR | not started |
 | M8 Frame upload + slot editor | done — `/templates` |
 
-63 tests passing. Nothing has yet been verified against a real camera.
+92 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
 and a `session.json` describing them. From M7 the Drive folder receives a copy of
@@ -80,17 +80,36 @@ what it rejected and why, and exactly which commit produced the answer.
 release, copy both across from the old folder. `data/` holds every past session;
 `templates/` holds any frame you made in the editor.
 
-## Setting the watch folder
+## Booth setup
 
-The one thing that must be right before anything works is **where EOS Utility
-saves**. Set it on the diagnostics page under **Setup** — paste the path from EOS
-Utility's own save-location setting, press *Check folder* to confirm it is
-usable, then *Save and apply*. It takes effect immediately, with no restart, and
-is written to `data/settings.json` so it survives one.
+Everything an event needs is on the diagnostics page under **Setup**, saved to
+`data/settings.json` so it survives a restart.
 
-The countdown and no-photo timeout live there too. The timeout in particular is
-a guess until someone measures the real press-to-file latency, which the same
-page can do.
+**Two folders, and they must be different ones.**
+
+| | |
+|---|---|
+| **Watch folder** | Wherever EOS Utility saves. Every guest's raw frames land here together — it belongs to Canon's software, and the app only copies out of it |
+| **Output folder** | Where a finished session is filed, **one subfolder per guest**, holding the raw photos, the strip and a `session.json` |
+
+Paste a path, press *Check* to confirm it is usable, then save. Applied
+immediately, no restart.
+
+**Strip layout.** Pick an output size — the shape decides the arrangement, so a
+portrait size stacks photos into a strip while a landscape one runs them along a
+row and then into a grid. Set how many photos a strip holds, within the
+minimum and maximum this event allows, and the slots are placed evenly. They can
+still be nudged by hand in the template editor afterwards.
+
+Changing the size or photo count re-lays the slots out, which **detaches frame
+art** drawn for the old shape — the PNG stays on disk and can be re-attached in
+the editor once you have art for the new layout.
+
+**Guest display.** A backdrop colour and an optional image, so the booth can
+match an event.
+
+**Timings.** Countdown and the no-photo timeout. The timeout is a guess until
+someone measures the real press-to-file latency, which the same page can do.
 
 ## Configuration
 

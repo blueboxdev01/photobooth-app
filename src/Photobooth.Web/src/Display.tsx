@@ -2,6 +2,7 @@ import { photoUrl } from './types'
 import type { SessionSnapshot, SessionState } from './types'
 import { useCountdown, useSession } from './useSession'
 import { PosingMirror } from './PosingMirror'
+import { backdropStyle, useDisplayTheme } from './useDisplayTheme'
 
 /**
  * States that show the guest a live mirror.
@@ -15,9 +16,14 @@ const MIRROR_STATES: SessionState[] = ['Idle', 'Countdown', 'Collecting', 'Timed
 /** The guest-facing screen. Fullscreen on the external monitor. */
 export function Display() {
   const { snapshot } = useSession()
+  const backdrop = backdropStyle(useDisplayTheme())
 
   if (!snapshot) {
-    return <div className="stage"><p className="muted">Connecting…</p></div>
+    return (
+      <div className="stage" style={backdrop}>
+        <p className="muted">Connecting…</p>
+      </div>
+    )
   }
 
   const { state } = snapshot
@@ -26,7 +32,7 @@ export function Display() {
   // looking at what they took, not at themselves.
   if (state === 'ReviewShots') {
     return (
-      <div className="stage">
+      <div className="stage" style={backdrop}>
         <h1>How do these look?</h1>
         <Filmstrip snapshot={snapshot} large />
       </div>
@@ -35,7 +41,7 @@ export function Display() {
 
   if (state === 'Composing') {
     return (
-      <div className="stage">
+      <div className="stage" style={backdrop}>
         <h1>Making your strip…</h1>
         <Filmstrip snapshot={snapshot} />
       </div>
@@ -44,7 +50,7 @@ export function Display() {
 
   if (!MIRROR_STATES.includes(state)) {
     return (
-      <div className="stage stage--done">
+      <div className="stage stage--done" style={backdrop}>
         <h1>All done</h1>
         {snapshot.stripUrl ? (
           <img className="strip" src={snapshot.stripUrl} alt="Your photo strip" />
@@ -57,7 +63,7 @@ export function Display() {
   }
 
   return (
-    <div className="stage stage--posing">
+    <div className="stage stage--posing" style={backdrop}>
       {/*
         One PosingMirror across every mirror state. Mounting it per state would
         tear down and re-acquire the webcam on each transition, which shows up as

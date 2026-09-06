@@ -271,3 +271,27 @@ button.linkish {
   color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline;
 }
 button.linkish:hover { background: none; color: #9ccbff; }
+
+/* ---------- setup groups ---------- */
+
+.settings__group {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; margin-bottom: 16px; background: #191c21;
+}
+.settings__group h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--accent); margin: 0 0 10px; font-weight: 600;
+}
+.settings__group .controls { margin-bottom: 6px; }
+.settings__group select { width: 100%; max-width: 340px; }
+
+.settings__backdrop {
+  display: flex; gap: 12px; align-items: center; margin: 8px 0 10px;
+}
+.settings__backdrop img {
+  width: 160px; height: 90px; object-fit: cover;
+  border: 1px solid var(--line); border-radius: 6px;
+}
+
+/* The guest stage paints the event backdrop, so it must not be overridden. */
+.stage { background-color: var(--bg); }

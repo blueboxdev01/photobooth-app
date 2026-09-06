@@ -1,47 +1,100 @@
 using Microsoft.Extensions.Options;
 using Photobooth.Cameras;
 using Photobooth.Core;
+using Photobooth.Delivery;
+using Photobooth.Imaging;
 
 namespace Photobooth.Server;
 
+/// <summary>Outcome of a layout change: what went wrong, and what it cost.</summary>
+internal sealed record LayoutResult(string? Error, bool OverlayDetached = false);
+
 public sealed record SettingsUpdate(
     string? WatchFolder,
+    string? OutputFolder,
     int? CountdownSeconds,
-    int? NoPhotoTimeoutSeconds);
+    int? NoPhotoTimeoutSeconds,
+    int? MinPhotos,
+    int? MaxPhotos,
+    int? PhotoCount,
+    string? CanvasPresetId,
+    string? DisplayBackgroundColor,
+    bool? ClearDisplayBackgroundImage);
 
 /// <summary>
-/// Lets the operator point the app at the folder EOS Utility actually saves to,
-/// and tune the two timings a field test is expected to correct.
+/// Everything an operator sets up per event: where the camera's photos arrive,
+/// where finished sessions are filed, how many photos a strip holds, what shape
+/// it is, and what the guest screen looks like.
 /// </summary>
 public static class SettingsEndpoints
 {
+    private const int MaxBackgroundBytes = 16 * 1024 * 1024;
+
     public static void MapSettingsEndpoints(this WebApplication app)
     {
         app.MapGet("/api/settings", (
             SettingsStore store,
             WatchFolderCamera camera,
-            IOptions<SessionSettings> session) => Results.Ok(new
+            SessionArchive archive,
+            FileTemplateProvider templates,
+            IOptions<SessionSettings> session) =>
         {
-            watchFolder = camera.WatchFolderPath,
-            countdownSeconds = session.Value.CountdownSeconds,
-            noPhotoTimeoutSeconds = session.Value.NoPhotoTimeoutSeconds,
-            settingsFile = store.Path,
-            // Somewhere sensible to start from, since EOS Utility defaults into
-            // the user's Pictures folder.
-            suggestions = Suggestions(),
-        }));
+            var current = templates.Current;
+            return Results.Ok(new
+            {
+                watchFolder = camera.WatchFolderPath,
+                outputFolder = archive.Root,
+                countdownSeconds = session.Value.CountdownSeconds,
+                noPhotoTimeoutSeconds = session.Value.NoPhotoTimeoutSeconds,
+                settingsFile = store.Path,
+                suggestions = Suggestions(),
+
+                layout = new
+                {
+                    minPhotos = MinPhotos(store),
+                    maxPhotos = MaxPhotos(store),
+                    photoCount = current.ShotCount,
+                    supportedMin = SlotLayout.MinPhotos,
+                    supportedMax = SlotLayout.MaxPhotos,
+                    canvasPresetId = CanvasPresets.Matching(current.Canvas)?.Id,
+                    orientation = SlotLayout.OrientationOf(current.Canvas).ToString(),
+                    canvas = current.Canvas,
+                    template = current.Name,
+                    presets = CanvasPresets.All.Select(p => new
+                    {
+                        p.Id,
+                        p.Label,
+                        p.Inches,
+                        orientation = p.Orientation.ToString(),
+                        p.Canvas.Width,
+                        p.Canvas.Height,
+                    }),
+                },
+
+                display = new
+                {
+                    backgroundColor = store.Current.DisplayBackgroundColor ?? "#14161A",
+                    backgroundImage = store.Current.DisplayBackgroundImage is null
+                        ? null
+                        : "/api/settings/display-background",
+                },
+            });
+        });
 
         app.MapPut("/api/settings", async (
             SettingsUpdate update,
             SettingsStore store,
             WatchFolderCamera camera,
+            SessionArchive archive,
+            FileTemplateProvider templates,
+            IOptions<ArchiveOptions> archiveOptions,
             IOptions<SessionSettings> session) =>
         {
             var settings = store.Current;
 
-            if (update.WatchFolder is { } requested)
+            if (update.WatchFolder is { } watch)
             {
-                var problem = ValidateFolder(requested, out var resolved);
+                var problem = ValidateFolder(watch, out var resolved);
                 if (problem is not null)
                 {
                     return Results.BadRequest(new { error = problem });
@@ -52,6 +105,27 @@ public static class SettingsEndpoints
                 // Applied immediately: making someone restart to find out whether
                 // they typed the right path would defeat the point.
                 await camera.ChangeFolderAsync(resolved);
+            }
+
+            if (update.OutputFolder is { } output)
+            {
+                var problem = ValidateFolder(output, out var resolved);
+                if (problem is not null)
+                {
+                    return Results.BadRequest(new { error = problem });
+                }
+
+                if (string.Equals(resolved, camera.WatchFolderPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = "The output folder must differ from the watch folder, or "
+                              + "finished sessions would be mixed in with the camera's raw files.",
+                    });
+                }
+
+                settings.OutputFolder = resolved;
+                archiveOptions.Value.Folder = resolved;
             }
 
             if (update.CountdownSeconds is { } countdown)
@@ -79,14 +153,48 @@ public static class SettingsEndpoints
                 session.Value.NoPhotoTimeoutSeconds = timeout;
             }
 
+            if (update.DisplayBackgroundColor is { } colour)
+            {
+                if (!LooksLikeHexColour(colour))
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = "The background colour must be a hex value such as #1A2B3C.",
+                    });
+                }
+
+                settings.DisplayBackgroundColor = colour.ToUpperInvariant();
+            }
+
+            if (update.ClearDisplayBackgroundImage == true)
+            {
+                DeleteBackgroundImage(store, settings);
+            }
+
+            var layout = ApplyLayout(update, settings, templates);
+            if (layout.Error is not null)
+            {
+                return Results.BadRequest(new { error = layout.Error });
+            }
+
             store.Save(settings);
 
+            var current = templates.Current;
             return Results.Ok(new
             {
                 watchFolder = camera.WatchFolderPath,
+                outputFolder = archive.Root,
                 countdownSeconds = session.Value.CountdownSeconds,
                 noPhotoTimeoutSeconds = session.Value.NoPhotoTimeoutSeconds,
+                photoCount = current.ShotCount,
+                orientation = SlotLayout.OrientationOf(current.Canvas).ToString(),
+                canvas = current.Canvas,
                 cameraStatus = camera.Status.ToString(),
+                overlayDetached = layout.OverlayDetached,
+                note = layout.OverlayDetached
+                    ? "The frame art was drawn for the previous layout, so it has been "
+                      + "detached. Upload art for the new size in the template editor."
+                    : null,
             });
         });
 
@@ -94,12 +202,13 @@ public static class SettingsEndpoints
         // typed path is usable before anything changes.
         app.MapPost("/api/settings/check-folder", (SettingsUpdate update) =>
         {
-            if (string.IsNullOrWhiteSpace(update.WatchFolder))
+            var folder = update.WatchFolder ?? update.OutputFolder;
+            if (string.IsNullOrWhiteSpace(folder))
             {
                 return Results.BadRequest(new { error = "No folder given." });
             }
 
-            var problem = ValidateFolder(update.WatchFolder, out var resolved, create: false);
+            var problem = ValidateFolder(folder, out var resolved, create: false);
             return Results.Ok(new
             {
                 path = resolved,
@@ -113,7 +222,235 @@ public static class SettingsEndpoints
                     : 0,
             });
         });
+
+        app.MapPost("/api/settings/display-background", async (
+            HttpRequest request, SettingsStore store) =>
+        {
+            if (!request.HasFormContentType)
+            {
+                return Results.BadRequest(new { error = "Expected a file upload." });
+            }
+
+            var form = await request.ReadFormAsync();
+            var file = form.Files.GetFile("background") ?? form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0)
+            {
+                return Results.BadRequest(new { error = "No file was uploaded." });
+            }
+
+            if (file.Length > MaxBackgroundBytes)
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"That image is {file.Length / 1024 / 1024} MB; the limit is "
+                          + $"{MaxBackgroundBytes / 1024 / 1024} MB.",
+                });
+            }
+
+            using var buffer = new MemoryStream();
+            await file.CopyToAsync(buffer);
+            var bytes = buffer.ToArray();
+
+            var extension = ImageExtension(bytes);
+            if (extension is null)
+            {
+                return Results.BadRequest(new
+                {
+                    error = "The backdrop must be a PNG or JPEG image.",
+                });
+            }
+
+            var settings = store.Current;
+            DeleteBackgroundImage(store, settings);
+
+            var name = "display-background" + extension;
+            Directory.CreateDirectory(BrandingFolder(store));
+            await File.WriteAllBytesAsync(Path.Combine(BrandingFolder(store), name), bytes);
+
+            settings.DisplayBackgroundImage = name;
+            store.Save(settings);
+
+            return Results.Ok(new { image = "/api/settings/display-background", bytes = bytes.Length });
+        });
+
+        app.MapGet("/api/settings/display-background", (SettingsStore store) =>
+        {
+            var name = store.Current.DisplayBackgroundImage;
+            if (name is null)
+            {
+                return Results.NotFound();
+            }
+
+            var path = Path.Combine(BrandingFolder(store), name);
+            if (!File.Exists(path))
+            {
+                return Results.NotFound();
+            }
+
+            var type = Path.GetExtension(path).ToLowerInvariant() == ".png"
+                ? "image/png"
+                : "image/jpeg";
+            return Results.File(path, type);
+        });
     }
+
+    private static int MinPhotos(SettingsStore store) =>
+        store.Current.MinPhotos ?? 2;
+
+    private static int MaxPhotos(SettingsStore store) =>
+        store.Current.MaxPhotos ?? 6;
+
+    /// <summary>
+    /// Applies the photo count and output size by regenerating the active
+    /// template's slots.
+    ///
+    /// The template still decides the shot count -- that invariant is what stops
+    /// a three-frame strip pairing with a four-shot session. This just gives the
+    /// operator a way to drive the template from a number instead of by dragging
+    /// rectangles.
+    /// </summary>
+    private static LayoutResult ApplyLayout(
+        SettingsUpdate update, BoothSettings settings, FileTemplateProvider templates)
+    {
+        var wantsBounds = update.MinPhotos is not null || update.MaxPhotos is not null;
+        var wantsLayout = update.PhotoCount is not null || update.CanvasPresetId is not null;
+
+        if (!wantsBounds && !wantsLayout)
+        {
+            return new LayoutResult(null);
+        }
+
+        var min = update.MinPhotos ?? settings.MinPhotos ?? 2;
+        var max = update.MaxPhotos ?? settings.MaxPhotos ?? 6;
+
+        if (min < SlotLayout.MinPhotos || max > SlotLayout.MaxPhotos)
+        {
+            return new LayoutResult($"Photo counts must be between {SlotLayout.MinPhotos} and "
+                 + $"{SlotLayout.MaxPhotos}.");
+        }
+
+        if (min > max)
+        {
+            return new LayoutResult("The minimum number of photos cannot exceed the maximum.");
+        }
+
+        settings.MinPhotos = min;
+        settings.MaxPhotos = max;
+
+        var current = templates.Current;
+        var count = update.PhotoCount ?? settings.PhotoCount ?? current.ShotCount;
+
+        if (count < min || count > max)
+        {
+            return new LayoutResult($"With this event set to {min}-{max} photos, {count} is out of range.");
+        }
+
+        var canvas = current.Canvas;
+        if (update.CanvasPresetId is { } presetId)
+        {
+            var preset = CanvasPresets.Find(presetId);
+            if (preset is null)
+            {
+                return new LayoutResult($"Unknown output size '{presetId}'.");
+            }
+
+            canvas = preset.Canvas;
+            settings.CanvasPresetId = preset.Id;
+        }
+
+        settings.PhotoCount = count;
+
+        // Regenerated rather than nudged: the operator asked for a number of
+        // photos on a given canvas, and even placement is the whole point.
+        var slots = SlotLayout.Arrange(count, canvas);
+        var name = TemplateFileName(templates);
+
+        // Frame art is drawn to fit one canvas and one arrangement of photos.
+        // Left attached across a re-layout it is stretched over the new slots --
+        // a 2x6 strip's footer smeared across a 6x4 landscape print, with its old
+        // slot borders landing in the wrong places. Detach it rather than render
+        // that. The PNG is untouched on disk and can be re-attached in the editor.
+        var reshaped = canvas != current.Canvas || slots.Count != current.Slots.Count;
+        var detached = reshaped && current.Overlay is not null;
+
+        templates.Save(name, current with
+        {
+            Canvas = canvas,
+            Slots = slots,
+            Overlay = reshaped ? null : current.Overlay,
+        });
+
+        return new LayoutResult(null, detached);
+    }
+
+    /// <summary>
+    /// The file the active template is stored under.
+    ///
+    /// Falls back to a fresh name when the built-in template is in force, so
+    /// regenerating a layout after a missing template file writes a real one
+    /// rather than silently changing nothing.
+    /// </summary>
+    private static string TemplateFileName(FileTemplateProvider templates)
+    {
+        if (!templates.UsingFallback)
+        {
+            var name = Path.GetFileNameWithoutExtension(templates.Source);
+            if (FileTemplateProvider.IsValidName(name))
+            {
+                return name;
+            }
+        }
+
+        return "event-layout";
+    }
+
+    private static string BrandingFolder(SettingsStore store) =>
+        Path.Combine(Path.GetDirectoryName(store.Path)!, "branding");
+
+    private static void DeleteBackgroundImage(SettingsStore store, BoothSettings settings)
+    {
+        if (settings.DisplayBackgroundImage is not { } existing)
+        {
+            return;
+        }
+
+        try
+        {
+            var path = Path.Combine(BrandingFolder(store), existing);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // A leftover file is not worth failing the request over.
+        }
+
+        settings.DisplayBackgroundImage = null;
+    }
+
+    /// <summary>PNG and JPEG magic numbers; the extension a browser sends is not evidence.</summary>
+    private static string? ImageExtension(ReadOnlySpan<byte> data)
+    {
+        if (data.Length > 8
+            && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+        {
+            return ".png";
+        }
+
+        if (data.Length > 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+        {
+            return ".jpg";
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeHexColour(string value) =>
+        value.Length is 4 or 7
+        && value[0] == '#'
+        && value[1..].All(Uri.IsHexDigit);
 
     /// <summary>
     /// Rejects a folder the app could not actually watch, and says why in terms

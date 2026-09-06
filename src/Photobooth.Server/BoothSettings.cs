@@ -17,10 +17,44 @@ public sealed class BoothSettings
     /// <summary>Where EOS Utility saves. Nobody knows until they look.</summary>
     public string? WatchFolder { get; set; }
 
+    /// <summary>
+    /// Where finished sessions are filed, one folder per guest.
+    ///
+    /// Deliberately a different root from the watch folder: that one belongs to
+    /// EOS Utility and accumulates every guest's raw frames together, which is
+    /// exactly what makes it useless for handing photos to a person.
+    /// </summary>
+    public string? OutputFolder { get; set; }
+
     public int? CountdownSeconds { get; set; }
 
     /// <summary>Tuned from the press-to-file latency measured during a field test.</summary>
     public int? NoPhotoTimeoutSeconds { get; set; }
+
+    // --- strip layout ---
+
+    /// <summary>Fewest photos a session may be set to at this event.</summary>
+    public int? MinPhotos { get; set; }
+
+    /// <summary>Most photos a session may be set to at this event.</summary>
+    public int? MaxPhotos { get; set; }
+
+    /// <summary>
+    /// Photos per session. Must sit within the bounds above; changing it
+    /// regenerates the active template's slots so the layout always matches.
+    /// </summary>
+    public int? PhotoCount { get; set; }
+
+    /// <summary>Output size, which also decides portrait versus landscape.</summary>
+    public string? CanvasPresetId { get; set; }
+
+    // --- guest display ---
+
+    /// <summary>Backdrop colour for the guest screen, so a booth can match an event.</summary>
+    public string? DisplayBackgroundColor { get; set; }
+
+    /// <summary>File name of an uploaded backdrop image, drawn over the colour.</summary>
+    public string? DisplayBackgroundImage { get; set; }
 }
 
 /// <summary>
