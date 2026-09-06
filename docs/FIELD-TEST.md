@@ -133,12 +133,38 @@ Accept a session and look at the composited 2×6 strip.
 
 If the layout is wrong you can fix it yourself. **Setup -> Strip layout** sets
 how many photos and the output size (portrait strip or landscape), placing the
-slots evenly. **Templates** lets you drag individual slots and re-render. Tell us
-what you changed.
+slots evenly. **Templates** lets you drag individual slots, type exact sizes, and
+re-render. Tell us what you changed.
 
 ---
 
-## Test 7 — Framing and crop *(shapes the strip design)*
+## Test 7 — Rearranging the shots *(new in v0.8.0)*
+
+Run a session but **do not press Accept yet**. While the console says *All shots
+are in*, each thumbnail has arrows on it and can be dragged.
+
+1. Move the last shot to the front, by dragging it or clicking its `<`.
+2. Check the guest screen followed.
+3. Press **Retake**, take the shot again, and see where the replacement lands.
+4. Press **Back to capture order**.
+5. Rearrange once more, then **Accept**.
+
+- [ ] The order on screen changed as expected, and the guest screen matched
+- [ ] Each thumbnail still said which shot it was ("shot 4") after moving
+- [ ] Retake dropped the shot taken **last**, not whichever was last on screen
+- [ ] The replacement came back into the same slot
+- [ ] **Back to capture order** put everything back
+- [ ] The finished strip is in the order you arranged, not capture order
+- [ ] In the output folder, `photo-1.jpg` is the shot you put first
+
+That last one is the point of the feature: the guest's raw photos are numbered in
+strip order, so the files match the strip they are holding.
+
+Notes: __________________________________________________
+
+---
+
+## Test 8 — Framing and crop *(shapes the strip design)*
 
 The strip's photo slots are **4:3**, but the R50 shoots **3:2**, so the sides get
 cropped. The dashed yellow box on the guest screen marks what survives — but it
@@ -154,7 +180,7 @@ lens rather than on its axis.
 
 ---
 
-## Test 8 — Both cameras at once
+## Test 9 — Both cameras at once
 
 - [ ] Webcam preview runs while the R50 is tethered and shooting
 - [ ] Picking a different webcam on **Setup** changes the mirror
