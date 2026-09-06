@@ -66,6 +66,9 @@ export function Diagnostics() {
     setMarked(new Date().toLocaleTimeString())
   }
 
+  const accepted = d?.ingest.filter((e) => e.outcome === 'Accepted').length ?? 0
+  const rejected = (d?.ingest.length ?? 0) - accepted
+
   if (!d) {
     return (
       <AppShell page="/diagnostics">
@@ -97,6 +100,7 @@ export function Diagnostics() {
               <td>
                 {camError && <span className="bad">{camError} </span>}
                 <select
+                  className="control"
                   value={selected ?? ''}
                   onChange={(e) => choose(e.target.value || null)}
                 >
@@ -107,7 +111,7 @@ export function Diagnostics() {
                     </option>
                   ))}
                 </select>{' '}
-                <button onClick={() => void refresh()}>Rescan</button>
+                <button className="btn" onClick={() => void refresh()}>Rescan</button>
                 <div className="muted small">
                   {devices.length} video device{devices.length === 1 ? '' : 's'} found.
                   Used for the posing mirror only — never for capture.
@@ -126,7 +130,7 @@ export function Diagnostics() {
           accepted photo is timed against it.
         </p>
         <div className="controls">
-          <button className="primary" onClick={markPress}>Mark shutter press</button>
+          <button className="btn btn--primary" onClick={markPress}>Mark shutter press</button>
           {marked && <span className="muted">marked at {marked}</span>}
         </div>
         {d.latency.count > 0 ? (
@@ -153,6 +157,7 @@ export function Diagnostics() {
             transferring.
           </p>
         )}
+        <div className="tablewrap">
         <table>
           <thead><tr><th>File</th><th>Size</th><th>Written</th><th>Watched</th></tr></thead>
           <tbody>
@@ -169,6 +174,7 @@ export function Diagnostics() {
             )}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section>
@@ -190,12 +196,26 @@ export function Diagnostics() {
         </table>
       </section>
 
-      <section>
-        <h2>Ingest decisions</h2>
+      {/*
+        Collapsed rather than removed. This is the record that makes a remote
+        field test debuggable -- every rejection with its reason -- and it goes
+        into the diagnostics bundle whether or not anyone opens it here. It is
+        just not something to read while running a booth.
+      */}
+      <details className="foldout">
+        <summary>
+          <span>Ingest decisions</span>
+          <span className="foldout__count">
+            {d.ingest.length} recent
+            {accepted > 0 && <> · {accepted} accepted</>}
+            {rejected > 0 && <> · {rejected} not used</>}
+          </span>
+        </summary>
         <p className="muted small">
           Including the rejections — “nothing happened” is impossible to debug
-          remotely, a named reason is not.
+          remotely, a named reason is not. Included in the diagnostics bundle.
         </p>
+        <div className="tablewrap">
         <table>
           <thead><tr><th>Time</th><th>File</th><th>Outcome</th><th>Reason</th></tr></thead>
           <tbody>
@@ -212,14 +232,15 @@ export function Diagnostics() {
             )}
           </tbody>
         </table>
-      </section>
+        </div>
+      </details>
 
       <section>
         <h2>Send this back</h2>
         <p className="muted small">
           Logs, ingest decisions and settings — <strong>no photographs</strong>.
         </p>
-        <a className="button" href="/api/diagnostics/bundle">Download diagnostics bundle</a>
+        <a className="btn btn--primary" href="/api/diagnostics/bundle">Download diagnostics bundle</a>
       </section>
       </div>
     </AppShell>

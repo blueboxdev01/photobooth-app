@@ -68,9 +68,10 @@ export function PosingMirror({ slotAspect = 4 / 3 }: { slotAspect?: number }) {
         </ul>
         <p className="muted small">{problem.raw}</p>
         <div className="controls">
-          <button onClick={retry}>Try again</button>
+          <button className="btn" onClick={retry}>Try again</button>
           {problem.offerReset && (
             <button
+              className="btn"
               onClick={() => {
                 setSelectedWebcamId(null)
                 retry()

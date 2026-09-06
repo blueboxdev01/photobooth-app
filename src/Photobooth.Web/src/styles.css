@@ -257,6 +257,11 @@ a:hover { text-decoration: underline; }
 .btn--go:not(:disabled) { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .btn--stop:not(:disabled) { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .btn--quiet { background: transparent; }
+.btn--icon {
+  padding: 4px 9px; line-height: 1.2; font-size: 12px;
+  color: var(--ink-faint);
+}
+.btn--icon:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
 
 .btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .btngrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -297,9 +302,20 @@ a:hover { text-decoration: underline; }
 
 /* ---------- forms shared by setup and the editor ---------- */
 
-input[type='text'], input[type='number'], input[type='color'], input:not([type]), select {
+input[type='text'], input[type='number'], input[type='color'], input:not([type]),
+select, .control {
   font: inherit; padding: 7px 10px; border-radius: var(--radius-sm);
   background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong);
+}
+.control--sm { padding: 4px 7px; font-size: 12px; }
+.control--color { padding: 2px; height: 34px; width: 56px; }
+.control--range { padding: 0; border: 0; background: none; width: 100%; accent-color: var(--accent); }
+
+/* A styled label standing in for the browser's file button, which cannot be
+   themed and looked out of place next to everything else. */
+.filebtn { position: relative; overflow: hidden; text-align: center; cursor: pointer; }
+.filebtn input[type='file'] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
 }
 input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
@@ -310,6 +326,8 @@ input[type='color'] { padding: 2px; height: 34px; width: 56px; }
 .fields { display: flex; gap: 12px; flex-wrap: wrap; }
 .fields label { display: block; font-size: 12px; color: var(--ink-soft); }
 .fields input { display: block; margin-top: 4px; width: 120px; }
+.fields input[type='color'] { width: 56px; }
+.fields .filebtn { display: block; margin-top: 4px; }
 
 .pill {
   font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
@@ -379,14 +397,57 @@ a.button, .btn.button {
 .diagnostics thead th { border-bottom: 1px solid var(--line); }
 .diagnostics tbody tr:nth-child(even) { background: var(--surface-sunk); }
 
+/* A section that is important to keep but not to read while running a booth. */
+.foldout {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); padding: 0 16px;
+}
+.foldout > summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 0; cursor: pointer; list-style: none;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--ink-faint);
+}
+.foldout > summary::-webkit-details-marker { display: none; }
+.foldout > summary::after { content: '＋'; font-size: 13px; }
+.foldout[open] > summary::after { content: '－'; }
+.foldout > summary:hover { color: var(--ink); }
+.foldout > summary > span:first-child { margin-right: auto; }
+.foldout__count { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.foldout > *:last-child { margin-bottom: 14px; }
+
+/* Wide tables scroll inside their own box rather than widening the page. */
+.tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tablewrap table { min-width: 420px; }
+
 /* ---------- template editor ---------- */
 
 .templates { display: flex; flex-direction: column; gap: 16px; }
-.templates__layout { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
-.templates__panel {
-  flex: 1 1 320px; min-width: 300px; max-width: 400px;
-  display: flex; flex-direction: column; gap: 14px;
+
+/* Canvas, controls, preview -- in that order, side by side. Laid out as a grid
+   rather than a wrapping flex row, which used to drop the controls underneath a
+   wide landscape canvas and leave the preview stranded below both. */
+.templates__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 340px) minmax(0, 0.9fr);
+  gap: 22px;
+  align-items: start;
 }
+.templates__stage {
+  min-width: 0; display: flex; flex-direction: column;
+  align-items: center; gap: 10px;
+}
+.templates__stage > p { margin: 0; align-self: stretch; }
+.templates__panel { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.templates__preview { min-width: 0; }
+.templates__preview .strip { max-width: 100%; max-height: min(62vh, 620px); width: auto; }
+.placeholder {
+  margin: 0; padding: 20px; border: 1px dashed var(--line-strong);
+  border-radius: var(--radius); color: var(--ink-faint); font-size: 12.5px;
+}
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.grid2 label { margin: 0; }
+.grid2 input { width: 100%; }
 .templates__panel section {
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: 14px 16px; background: var(--surface);
@@ -405,6 +466,7 @@ a.button, .btn.button {
 .stagebox {
   position: relative; border-radius: var(--radius-sm); overflow: hidden;
   box-shadow: var(--shadow); touch-action: none; user-select: none;
+  max-width: 100%;
 }
 .stagebox__art {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -439,10 +501,14 @@ a.button, .btn.button {
   margin-bottom: 5px; cursor: pointer; font-size: 12.5px;
 }
 .slotlist li.active { border-color: var(--warn); background: var(--warn-wash); }
-.slotlist li code { flex: 1; }
+.slotlist li code { flex: 1; font-size: 11.5px; }
+.slotlist__no {
+  display: grid; place-items: center; width: 20px; height: 20px; flex: none;
+  border-radius: 5px; background: var(--surface-sunk); border: 1px solid var(--line);
+  font-size: 11px; font-weight: 700;
+}
 .slotlist button { padding: 2px 8px; }
 .strip { border-radius: var(--radius-sm); background: #fff; box-shadow: var(--shadow); }
-.templates__preview .strip { max-height: 620px; width: auto; }
 
 /* =========================================================================
    Guest display.
@@ -525,10 +591,71 @@ a.button, .btn.button {
 
 /* ---------- narrow screens ---------- */
 
+/* Laptop: the editor's third column is the first thing to give. */
+@media (max-width: 1240px) {
+  .templates__layout {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+  }
+  /* Preview moves under the canvas rather than squeezing the controls out. */
+  .templates__preview { grid-column: 1 / -1; }
+  .templates__preview .strip { max-height: 46vh; }
+}
+
+/* Tablet: the rail becomes a header strip and everything goes single column. */
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
-  .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .rail {
+    position: static; height: auto; border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail__nav { flex-direction: row; flex-wrap: wrap; }
+  .navitem { flex: 1 1 auto; }
+  .navitem__hint { display: none; }
+  .rail__foot { margin-top: 4px; }
+
   .work { padding: 18px 16px 48px; }
+  .stagecard { padding: 20px; }
   .stagecard__headline { font-size: 24px; }
   .metric { font-size: 36px; }
+
+  .templates__layout { grid-template-columns: minmax(0, 1fr); }
+  .templates__panel { max-width: none; }
+  .settings .fields { flex-wrap: wrap; }
+}
+
+/* Phone: single column throughout, and controls big enough to hit with a thumb. */
+@media (max-width: 640px) {
+  .work { padding: 14px 12px 40px; gap: 14px; }
+  .panel, .settings__group, .templates__panel section { padding: 14px; }
+
+  .stagecard { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .stagecard__metric { text-align: left; }
+  .stagecard__headline { font-size: 21px; }
+
+  /* 44px is the smallest comfortable touch target. */
+  .btn, .control, input, select { min-height: 44px; }
+  .btn--icon, .control--sm { min-height: 34px; }
+  .btnrow, .btngrid, .grid2 { grid-template-columns: 1fr; }
+  .controls { flex-direction: column; align-items: stretch; }
+  .controls .btn, .controls .filebtn { width: 100%; }
+
+  .fields { flex-direction: column; }
+  .fields input:not([type='color']), .settings .fields input:not([type='color']) { width: 100%; }
+  .frame { width: 100%; }
+  .result { flex-direction: column; }
+  .result__strip { max-height: 40vh; }
+  .facts { grid-template-columns: 1fr; gap: 2px 0; }
+  .facts dt { margin-top: 8px; }
+
+  .diagnostics th { white-space: normal; }
+}
+
+/* Guest display: the countdown and headings scale with the screen, since it can
+   be anything from a phone being tested to a 32-inch monitor. */
+@media (max-width: 640px) {
+  .stage { padding: 16px; gap: 14px; }
+  .stage h1, .stage--idle h1, .stage--done h1 { font-size: clamp(22px, 7vw, 44px); }
+  .stage__mirror { width: 100%; }
+  .filmstrip .shot { width: min(28vw, 150px); }
+  .attract { font-size: clamp(18px, 5vw, 30px); padding: 8px 18px; }
 }

@@ -24,8 +24,8 @@ interface TemplatesResponse {
   current: Template
 }
 
-/** Editor viewport height. Slots are normalised, so this is presentation only. */
-const VIEW_HEIGHT = 560
+/** Tallest the editor canvas gets. Slots are normalised, so this is presentation only. */
+const MAX_STAGE_HEIGHT = '62vh'
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -87,7 +87,6 @@ export function Templates() {
   }
 
   const aspect = draft.canvas.width / draft.canvas.height
-  const viewWidth = VIEW_HEIGHT * aspect
 
   const update = (patch: Partial<Template>) => setDraft({ ...draft, ...patch })
   const updateSlot = (i: number, patch: Partial<Slot>) =>
@@ -100,6 +99,29 @@ export function Templates() {
       slots: [...draft.slots, { x: 0.1, y: clamp(0.05 + n * 0.05, 0, 0.8), w: 0.8, h: 0.2, fit: 'Cover' }],
     })
     setSelectedSlot(n)
+  }
+
+  const selected = draft.slots[selectedSlot]
+
+  /** Normalised fraction -> whole pixels, for display. */
+  const px = (value: number, axis: 'w' | 'h') =>
+    Math.round(value * (axis === 'w' ? draft.canvas.width : draft.canvas.height))
+
+  /** Pixels typed by hand -> the normalised fraction actually stored. */
+  const setPx = (i: number, key: 'x' | 'y' | 'w' | 'h', raw: string) => {
+    const pixels = Number(raw)
+    if (!Number.isFinite(pixels)) return
+    const axis = key === 'x' || key === 'w' ? draft.canvas.width : draft.canvas.height
+    updateSlot(i, { [key]: clamp(pixels / axis, 0, 1) } as Partial<Slot>)
+  }
+
+  /** Uniform photo sizes, without disturbing where each one sits. */
+  const matchAllToSelected = () => {
+    if (!selected) return
+    setDraft({
+      ...draft,
+      slots: draft.slots.map((s) => ({ ...s, w: selected.w, h: selected.h })),
+    })
   }
 
   const removeSlot = (i: number) => {
@@ -229,8 +251,11 @@ export function Templates() {
             ref={stageRef}
             className="stagebox"
             style={{
-              width: viewWidth,
-              height: VIEW_HEIGHT,
+              // Whichever is smaller: the column, or what the height cap allows.
+              // Keeps a tall 2x6 and a wide 6x4 both fitting without the panel
+              // being pushed below the canvas.
+              width: `min(100%, calc(${MAX_STAGE_HEIGHT} * ${aspect}))`,
+              aspectRatio: `${draft.canvas.width} / ${draft.canvas.height}`,
               background: draft.background,
             }}
             onPointerDown={() => setSelectedSlot(-1)}
@@ -292,14 +317,15 @@ export function Templates() {
           <section>
             <h2>Template</h2>
             <div className="controls">
-              <select value={name} onChange={(e) => void load(e.target.value)}>
+              <select className="control" value={name} onChange={(e) => void load(e.target.value)}>
                 {meta.available.map((a) => <option key={a} value={a}>{a}</option>)}
                 {!meta.available.includes(name) && <option value={name}>{name}</option>}
               </select>
-              <button onClick={() => void selectTemplate(name)}>Use for sessions</button>
+              <button className="btn" onClick={() => void selectTemplate(name)}>Use for sessions</button>
             </div>
             <label>Save as
-              <input value={name} onChange={(e) => setName(e.target.value.trim())}
+              <input className="control" value={name}
+                     onChange={(e) => setName(e.target.value.trim())}
                      placeholder="my-frame" />
             </label>
             <p className="muted small">
@@ -312,19 +338,19 @@ export function Templates() {
             <h2>Canvas</h2>
             <div className="fields">
               <label>Width
-                <input type="number" value={draft.canvas.width}
+                <input className="control" type="number" value={draft.canvas.width}
                        onChange={(e) => update({
                          canvas: { ...draft.canvas, width: Number(e.target.value) },
                        })} />
               </label>
               <label>Height
-                <input type="number" value={draft.canvas.height}
+                <input className="control" type="number" value={draft.canvas.height}
                        onChange={(e) => update({
                          canvas: { ...draft.canvas, height: Number(e.target.value) },
                        })} />
               </label>
               <label>DPI
-                <input type="number" value={draft.canvas.dpi}
+                <input className="control" type="number" value={draft.canvas.dpi}
                        onChange={(e) => update({
                          canvas: { ...draft.canvas, dpi: Number(e.target.value) },
                        })} />
@@ -335,18 +361,21 @@ export function Templates() {
               {(draft.canvas.height / draft.canvas.dpi).toFixed(2)} inches printed.
             </p>
             <label>Background
-              <input type="color" value={draft.background}
+              <input className="control control--color" type="color" value={draft.background}
                      onChange={(e) => update({ background: e.target.value.toUpperCase() })} />
             </label>
           </section>
 
           <section>
             <h2>Template art</h2>
-            <input type="file" accept="image/png,image/jpeg"
-                   onChange={(e) => {
-                     const f = e.target.files?.[0]
-                     if (f) void uploadOverlay(f)
-                   }} />
+            <label className="btn btn--block filebtn">
+              Choose image…
+              <input type="file" accept="image/png,image/jpeg"
+                     onChange={(e) => {
+                       const f = e.target.files?.[0]
+                       if (f) void uploadOverlay(f)
+                     }} />
+            </label>
             <p className="muted small">
               Upload at <strong>{draft.canvas.width}&times;{draft.canvas.height}px</strong> for
               this size. Anything else is scaled to fill and centre-cropped, so the
@@ -371,8 +400,9 @@ export function Templates() {
               </p>
             )}
             {draft.overlay && (
-              <label>Show at
-                <input type="range" min={0} max={1} step={0.05} value={overlayOpacity}
+              <label>Art opacity, for positioning slots underneath it
+                <input className="control control--range" type="range"
+                       min={0} max={1} step={0.05} value={overlayOpacity}
                        onChange={(e) => setOverlayOpacity(Number(e.target.value))} />
               </label>
             )}
@@ -387,40 +417,82 @@ export function Templates() {
               {draft.slots.map((slot, i) => (
                 <li key={i} className={i === selectedSlot ? 'active' : ''}
                     onClick={() => setSelectedSlot(i)}>
-                  <span>#{i + 1}</span>
+                  <span className="slotlist__no">{i + 1}</span>
                   <code>
-                    {(slot.w * draft.canvas.width).toFixed(0)}×
-                    {(slot.h * draft.canvas.height).toFixed(0)}px
+                    {Math.round(slot.w * draft.canvas.width)}×
+                    {Math.round(slot.h * draft.canvas.height)}
                   </code>
-                  <select value={slot.fit}
+                  <select className="control control--sm" value={slot.fit}
                           onChange={(e) => updateSlot(i, { fit: e.target.value as Fit })}>
                     <option value="Cover">Cover</option>
                     <option value="Contain">Contain</option>
                   </select>
-                  <button onClick={() => removeSlot(i)}>✕</button>
+                  <button className="btn btn--icon" title="Remove this slot"
+                          onClick={() => removeSlot(i)}>✕</button>
                 </li>
               ))}
             </ol>
-            <button onClick={addSlot}>Add slot</button>
+            <button className="btn btn--block" onClick={addSlot}>Add slot</button>
           </section>
 
+          {selected && (
+            <section>
+              <h2>Slot {selectedSlot + 1} position</h2>
+              <p className="muted small">
+                Typed in pixels, for sizes a drag cannot hit exactly.
+              </p>
+              <div className="grid2">
+                <label>X
+                  <input className="control" type="number" value={px(selected.x, 'w')}
+                         onChange={(e) => setPx(selectedSlot, 'x', e.target.value)} />
+                </label>
+                <label>Y
+                  <input className="control" type="number" value={px(selected.y, 'h')}
+                         onChange={(e) => setPx(selectedSlot, 'y', e.target.value)} />
+                </label>
+                <label>Width
+                  <input className="control" type="number" value={px(selected.w, 'w')}
+                         onChange={(e) => setPx(selectedSlot, 'w', e.target.value)} />
+                </label>
+                <label>Height
+                  <input className="control" type="number" value={px(selected.h, 'h')}
+                         onChange={(e) => setPx(selectedSlot, 'h', e.target.value)} />
+                </label>
+              </div>
+              <button className="btn btn--block" disabled={draft.slots.length < 2}
+                      onClick={matchAllToSelected}>
+                Make every slot this size
+              </button>
+              <p className="muted small">
+                Photos at different sizes on one strip read as a mistake, so this
+                copies the width and height to every other slot without moving them.
+              </p>
+            </section>
+          )}
+
           <section className="controls">
-            <button className="primary" disabled={busy || !name} onClick={() => void save()}>
+            <button className="btn btn--primary" disabled={busy || !name}
+                    onClick={() => void save()}>
               Save template
             </button>
-            <button disabled={busy} onClick={() => void renderPreview()}>
+            <button className="btn" disabled={busy} onClick={() => void renderPreview()}>
               Render preview
             </button>
           </section>
         </div>
 
-        {preview && (
-          <div className="templates__preview">
-            <h2>Real render</h2>
-            <img className="strip" src={preview} alt="Rendered strip" />
-            <p className="muted small">Built by the compositor a session uses.</p>
-          </div>
-        )}
+        <div className="templates__preview">
+          <h2>Real render</h2>
+          {preview
+            ? <img className="strip" src={preview} alt="Rendered strip" />
+            : (
+              <p className="placeholder">
+                Press <strong>Render preview</strong> to build this template through
+                the same compositor a session uses.
+              </p>
+            )}
+          {preview && <p className="muted small">Built by the compositor a session uses.</p>}
+        </div>
       </div>
       </div>
     </AppShell>

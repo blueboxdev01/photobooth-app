@@ -182,10 +182,10 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
                  onChange={(e) => { setWatch(e.target.value); setCheck(null) }} />
         </label>
         <div className="controls">
-          <button disabled={busy || !watch.trim()} onClick={() => void checkFolder('watch')}>
+          <button className="btn" disabled={busy || !watch.trim()} onClick={() => void checkFolder('watch')}>
             Check
           </button>
-          <button className="primary"
+          <button className="btn btn--primary"
                   disabled={busy || watch.trim() === data.watchFolder}
                   onClick={() => void save({ watchFolder: watch.trim() }, 'Watch folder applied.')}>
             Save watch folder
@@ -200,10 +200,10 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
                  onChange={(e) => { setOutput(e.target.value); setCheck(null) }} />
         </label>
         <div className="controls">
-          <button disabled={busy || !output.trim()} onClick={() => void checkFolder('output')}>
+          <button className="btn" disabled={busy || !output.trim()} onClick={() => void checkFolder('output')}>
             Check
           </button>
-          <button className="primary"
+          <button className="btn btn--primary"
                   disabled={busy || output.trim() === data.outputFolder}
                   onClick={() => void save({ outputFolder: output.trim() }, 'Output folder applied.')}>
             Save output folder
@@ -270,7 +270,7 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
         </p>
 
         <div className="controls">
-          <button className="primary" disabled={busy}
+          <button className="btn btn--primary" disabled={busy}
                   onClick={() => void save(
                     { minPhotos, maxPhotos, photoCount, canvasPresetId: presetId || undefined },
                     'Layout regenerated.')}>
@@ -293,18 +293,21 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
             <input type="color" value={colour} onChange={(e) => setColour(e.target.value)} />
           </label>
           <label>Backdrop image
-            <input type="file" accept="image/png,image/jpeg"
-                   onChange={(e) => {
-                     const f = e.target.files?.[0]
-                     if (f) void uploadBackground(f)
-                   }} />
+            <span className="btn filebtn">
+              Choose image…
+              <input type="file" accept="image/png,image/jpeg"
+                     onChange={(e) => {
+                       const f = e.target.files?.[0]
+                       if (f) void uploadBackground(f)
+                     }} />
+            </span>
           </label>
         </div>
 
         {display.backgroundImage && (
           <div className="settings__backdrop">
             <img src={`${display.backgroundImage}?v=${Date.now()}`} alt="Current backdrop" />
-            <button onClick={() => void save(
+            <button className="btn" onClick={() => void save(
               { clearDisplayBackgroundImage: true }, 'Backdrop image removed.')}>
               Remove image
             </button>
@@ -312,7 +315,7 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
         )}
 
         <div className="controls">
-          <button className="primary"
+          <button className="btn btn--primary"
                   disabled={busy || colour.toUpperCase() === display.backgroundColor.toUpperCase()}
                   onClick={() => void save(
                     { displayBackgroundColor: colour }, 'Backdrop colour applied.')}>
@@ -338,7 +341,7 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
           </label>
         </div>
         <div className="controls">
-          <button className="primary"
+          <button className="btn btn--primary"
                   disabled={busy || (countdown === data.countdownSeconds
                                      && timeout === data.noPhotoTimeoutSeconds)}
                   onClick={() => void save(
