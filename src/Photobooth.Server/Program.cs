@@ -155,6 +155,17 @@ app.MapGet("/api/diagnostics/bundle", (DiagnosticsService d, IConfiguration conf
 app.MapPost("/api/session/arm", (SessionCoordinator c) => Results.Ok(c.Arm()));
 app.MapPost("/api/session/retake", (SessionEngine e) => Results.Ok(e.RetakeLast()));
 app.MapPost("/api/session/resume", (SessionEngine e) => Results.Ok(e.Resume()));
+// The shots, rearranged. Positions are expressed in the order the console is
+// currently showing, so a drag translates straight into this without the client
+// needing to know capture order.
+app.MapPut("/api/session/order", (SessionEngine e, ReorderRequest body) =>
+{
+    var result = e.Reorder(body.Order ?? []);
+    return result.Ok
+        ? Results.Ok(result.Snapshot)
+        : Results.BadRequest(new { error = result.Error, snapshot = result.Snapshot });
+});
+app.MapPost("/api/session/order/reset", (SessionEngine e) => Results.Ok(e.ResetOrder()));
 app.MapPost("/api/session/accept", (SessionEngine e) => Results.Ok(e.Accept()));
 app.MapPost("/api/session/abort", (SessionEngine e) => Results.Ok(e.Abort("Aborted by operator.")));
 
@@ -237,3 +248,10 @@ app.MapGet("/api/photos/{fileName}", (string fileName, WatchFolderCamera camera)
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+/// <param name="Order">
+/// One entry per shot: the position, in the order the console is showing, that
+/// should move into that slot. Dragging the fourth of six to the front sends
+/// [3, 0, 1, 2, 4, 5].
+/// </param>
+internal sealed record ReorderRequest(int[]? Order);

@@ -20,6 +20,14 @@ export interface SessionSnapshot {
   state: SessionState
   shotCount: number
   photos: CapturedPhoto[]
+  /**
+   * For each entry in `photos`, the 0-based position it was captured in. After
+   * dragging the fourth shot to the front of six this is [3, 0, 1, 2, 4, 5], so a
+   * thumbnail can still be labelled with the pose it actually is.
+   */
+  order: number[]
+  /** True once the shots have been rearranged, so the console can offer to undo it. */
+  isReordered: boolean
   /** Absolute instants, so the browser ticks the countdown locally. */
   countdownEndsUtc: string | null
   timeoutAtUtc: string | null

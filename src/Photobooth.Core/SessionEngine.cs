@@ -24,6 +24,22 @@ public sealed class SessionEngine : IDisposable
     private readonly Lock _sync = new();
     private readonly List<CapturedPhoto> _photos = [];
 
+    /// <summary>
+    /// Which photo goes in which slot: entry i holds the index into
+    /// <see cref="_photos"/> that the strip's slot i draws.
+    ///
+    /// Kept separate from <see cref="_photos"/>, which stays in capture order, so
+    /// that "retake the last shot" keeps meaning the last shot *taken* however the
+    /// operator has since rearranged the strip.
+    /// </summary>
+    private readonly List<int> _order = [];
+
+    /// <summary>
+    /// The slot a retaken shot came out of, so its replacement goes back into the
+    /// same place rather than to the end. Null when no retake is outstanding.
+    /// </summary>
+    private int? _retakeSlot;
+
     private ITimer? _timer;
     private SessionState _state = SessionState.Idle;
     private DateTimeOffset? _countdownEnds;
@@ -67,6 +83,8 @@ public sealed class SessionEngine : IDisposable
         lock (_sync)
         {
             _photos.Clear();
+            _order.Clear();
+            _retakeSlot = null;
             _startedUtc = _time.GetUtcNow();
             _message = null;
             _stripUrl = null;
@@ -99,6 +117,20 @@ public sealed class SessionEngine : IDisposable
             }
 
             _photos.Add(photo);
+
+            // A replacement goes back into the slot its predecessor occupied; a
+            // brand-new shot goes on the end.
+            var captured = _photos.Count - 1;
+            if (_retakeSlot is { } slot)
+            {
+                _order.Insert(Math.Min(slot, _order.Count), captured);
+                _retakeSlot = null;
+            }
+            else
+            {
+                _order.Add(captured);
+            }
+
             _message = null;
 
             if (_photos.Count >= ShotCount)
@@ -135,8 +167,17 @@ public sealed class SessionEngine : IDisposable
             if (_photos.Count > 0)
             {
                 var dropped = _photos[^1];
-                _photos.RemoveAt(_photos.Count - 1);
-                _logger.LogInformation("Retaking; dropped {File}.", dropped.FileName);
+                var captured = _photos.Count - 1;
+
+                // Remember where it sat in the strip before dropping it, so a
+                // rearrangement survives the retake.
+                var slot = _order.IndexOf(captured);
+                _retakeSlot = slot >= 0 ? slot : null;
+                _order.Remove(captured);
+
+                _photos.RemoveAt(captured);
+                _logger.LogInformation(
+                    "Retaking; dropped {File} from slot {Slot}.", dropped.FileName, slot + 1);
             }
 
             _message = null;
@@ -144,6 +185,84 @@ public sealed class SessionEngine : IDisposable
             snapshot = Build();
         }
 
+        Publish(snapshot);
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Rearrange which shot goes in which slot of the strip.
+    ///
+    /// <paramref name="positions"/> is expressed in the order the operator is
+    /// currently looking at, not capture order: entry i names the position that
+    /// should move into slot i. Dragging the fourth thumbnail to the front of six
+    /// therefore sends [3, 0, 1, 2, 4, 5].
+    ///
+    /// Nothing is copied or re-encoded -- this only decides which file the
+    /// compositor reads into which slot, and it is refused outside review because
+    /// that is the only point at which the full set exists and none of it has been
+    /// written anywhere yet.
+    /// </summary>
+    public ReorderResult Reorder(IReadOnlyList<int> positions)
+    {
+        SessionSnapshot snapshot;
+        lock (_sync)
+        {
+            if (_state != SessionState.ReviewShots)
+            {
+                return new ReorderResult(
+                    false,
+                    $"The shots can only be rearranged while reviewing them, not in {_state}.",
+                    Build());
+            }
+
+            if (positions.Count != _order.Count)
+            {
+                return new ReorderResult(
+                    false,
+                    $"Expected {_order.Count} positions, got {positions.Count}.",
+                    Build());
+            }
+
+            // A permutation, or the strip would silently lose or duplicate a photo.
+            if (positions.Distinct().Count() != positions.Count
+                || positions.Any(p => p < 0 || p >= _order.Count))
+            {
+                return new ReorderResult(
+                    false,
+                    $"Positions must be each of 0..{_order.Count - 1} exactly once.",
+                    Build());
+            }
+
+            var rearranged = positions.Select(p => _order[p]).ToList();
+            _order.Clear();
+            _order.AddRange(rearranged);
+
+            snapshot = Build();
+        }
+
+        _logger.LogInformation(
+            "Shots rearranged to {Order}.",
+            string.Join(", ", snapshot.Order.Select(i => i + 1)));
+        Publish(snapshot);
+        return new ReorderResult(true, null, snapshot);
+    }
+
+    /// <summary>Put the shots back into the order they were taken in.</summary>
+    public SessionSnapshot ResetOrder()
+    {
+        SessionSnapshot snapshot;
+        lock (_sync)
+        {
+            if (_state != SessionState.ReviewShots)
+            {
+                return Build();
+            }
+
+            _order.Sort();
+            snapshot = Build();
+        }
+
+        _logger.LogInformation("Shot order reset to capture order.");
         Publish(snapshot);
         return snapshot;
     }
@@ -251,6 +370,8 @@ public sealed class SessionEngine : IDisposable
         {
             StopTimer();
             _photos.Clear();
+            _order.Clear();
+            _retakeSlot = null;
             _state = SessionState.Idle;
             _countdownEnds = null;
             _timeoutAt = null;
@@ -332,7 +453,8 @@ public sealed class SessionEngine : IDisposable
     private SessionSnapshot Build() => new(
         _state,
         ShotCount,
-        _photos.ToList(),
+        _order.Select(i => _photos[i]).ToList(),
+        _order.ToList(),
         _countdownEnds,
         _timeoutAt,
         _startedUtc,

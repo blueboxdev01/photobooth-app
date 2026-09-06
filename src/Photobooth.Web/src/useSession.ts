@@ -78,6 +78,29 @@ export async function command(name: string, body?: unknown) {
   })
 }
 
+/**
+ * Rearrange the shots. `positions` is expressed in the order currently on screen
+ * -- entry i is the position that should move into slot i -- which is exactly
+ * what a drag produces without the console needing to track capture order.
+ *
+ * Returns the server's reason on refusal, or null. The new state arrives over the
+ * hub like every other transition, so there is nothing to apply here.
+ */
+export async function reorder(positions: number[]): Promise<string | null> {
+  try {
+    const r = await fetch('/api/session/order', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ order: positions }),
+    })
+    if (r.ok) return null
+    const body = await r.json()
+    return body.error ?? `HTTP ${r.status}`
+  } catch (e) {
+    return e instanceof Error ? e.message : 'Request failed'
+  }
+}
+
 /** Seconds left until an absolute deadline, ticking locally. */
 export function useCountdown(deadlineUtc: string | null) {
   const [remaining, setRemaining] = useState<number | null>(null)

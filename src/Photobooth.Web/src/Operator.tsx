@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AppShell, Panel, RailSection } from './AppShell'
 import { photoUrl } from './types'
 import type { SessionSnapshot, SessionState } from './types'
-import { command, useCountdown, useSession } from './useSession'
+import { command, reorder, useCountdown, useSession } from './useSession'
 
 const MOCK_MODES = [
   ['Normal', 'Simulate press'],
@@ -111,7 +111,14 @@ export function Operator() {
 
       <Stage snapshot={snapshot} />
 
-      <Panel title="Shots">
+      <Panel
+        title="Shots"
+        actions={state === 'ReviewShots' && snapshot.isReordered ? (
+          <button className="btn btn--quiet" onClick={() => command('order/reset')}>
+            Back to capture order
+          </button>
+        ) : undefined}
+      >
         <Filmstrip snapshot={snapshot} />
       </Panel>
 
@@ -178,27 +185,107 @@ function Stage({ snapshot }: { snapshot: SessionSnapshot }) {
   )
 }
 
+/**
+ * The shots, in the order they will be composited.
+ *
+ * That order is the operator's to change during review: the guest posed six
+ * times, and which of those opens the strip is a judgement no software makes
+ * well. Dragging is the mouse path; the arrows exist because a booth gets run
+ * from a touchscreen, where HTML5 drag does nothing at all.
+ *
+ * Each thumbnail keeps its capture number, so "shot 4" is still shot 4 after it
+ * has moved to the front -- without it, a rearranged strip is impossible to talk
+ * about with the person standing next to you.
+ */
 function Filmstrip({ snapshot }: { snapshot: SessionSnapshot }) {
-  const slots = Array.from({ length: snapshot.shotCount })
+  const [dragging, setDragging] = useState<number | null>(null)
+  const [over, setOver] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const taken = snapshot.photos.length
+  const canReorder = snapshot.state === 'ReviewShots' && taken > 1
+
+  /** Lift the shot at `from` out and drop it in at `to`, as a whole permutation. */
+  const move = async (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0 || from >= taken || to >= taken) return
+    const positions = Array.from({ length: taken }, (_, i) => i)
+    positions.splice(to, 0, positions.splice(from, 1)[0])
+    setError(await reorder(positions))
+  }
+
+  const endDrag = () => {
+    setDragging(null)
+    setOver(null)
+  }
 
   return (
-    <div className="filmrow">
-      {slots.map((_, i) => {
-        const photo = snapshot.photos[i]
-        return (
-          <figure key={i} className={photo ? 'frame' : 'frame frame--empty'}>
-            {photo
-              ? <img src={photoUrl(photo)} alt={`Photo ${i + 1}`} />
-              : <span>{i + 1}</span>}
-            {photo && (
+    <>
+      {canReorder && (
+        <p className="hint">
+          Drag a shot, or use the arrows, to change where it lands on the strip.
+        </p>
+      )}
+      {error && <p className="hint hint--bad">{error}</p>}
+
+      <div className="filmrow">
+        {Array.from({ length: snapshot.shotCount }).map((_, i) => {
+          const photo = snapshot.photos[i]
+          if (!photo) {
+            return (
+              <figure key={`empty-${i}`} className="frame frame--empty">
+                <span>{i + 1}</span>
+              </figure>
+            )
+          }
+
+          const shot = (snapshot.order[i] ?? i) + 1
+          const classes = [
+            'frame',
+            canReorder ? 'frame--movable' : '',
+            dragging === i ? 'frame--dragging' : '',
+            over === i && dragging !== i ? 'frame--over' : '',
+          ].filter(Boolean).join(' ')
+
+          return (
+            <figure
+              key={photo.fileName}
+              className={classes}
+              draggable={canReorder}
+              onDragStart={() => setDragging(i)}
+              onDragEnd={endDrag}
+              onDragOver={(e) => {
+                if (!canReorder || dragging === null) return
+                e.preventDefault()
+                setOver(i)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragging !== null) void move(dragging, i)
+                endDrag()
+              }}
+            >
+              <img src={photoUrl(photo)} alt={`Shot ${shot}`} />
+
+              {canReorder && (
+                <div className="frame__move">
+                  <button className="btn btn--icon" disabled={i === 0}
+                          title={`Move shot ${shot} earlier`}
+                          onClick={() => void move(i, i - 1)}>‹</button>
+                  <span className="frame__slot">slot {i + 1}</span>
+                  <button className="btn btn--icon" disabled={i === taken - 1}
+                          title={`Move shot ${shot} later`}
+                          onClick={() => void move(i, i + 1)}>›</button>
+                </div>
+              )}
+
               <figcaption>
+                <span className="frame__shot">shot {shot}</span>
                 {photo.fileName}
-                <span>{Math.round(photo.sizeBytes / 1024)} KB</span>
               </figcaption>
-            )}
-          </figure>
-        )
-      })}
-    </div>
+            </figure>
+          )
+        })}
+      </div>
+    </>
   )
 }

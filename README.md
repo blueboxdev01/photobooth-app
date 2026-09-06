@@ -24,11 +24,31 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M8 Frame upload + slot editor | done — `/templates` |
 | Operator console | done — dashboard, light/dark, layout and folder settings |
 
-99 tests passing. Nothing has yet been verified against a real camera.
+115 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
 and a `session.json` describing them. From M7 the Drive folder receives a copy of
 exactly that folder under the same name.
+
+## Rearranging the shots
+
+The guest poses N times, and which of those opens the strip is a judgement no
+software makes well. So during **review**, before you press Accept, the shots can
+be put in any order: drag a thumbnail, or use the arrows on it. **Back to capture
+order** undoes the lot.
+
+The order decides everything downstream, not just the preview -- the strip, the
+numbering of the raw photos in the session folder, and what the guest screen
+shows. `photo-1.jpg` is whichever shot you put first.
+
+Each thumbnail keeps its **capture number**, so a photo dragged to the front is
+still labelled "shot 4" and you can talk about it with the person next to you.
+Retake still discards the shot taken *last*, whatever position it has been moved
+to, and its replacement comes back into the same slot rather than jumping to the
+end.
+
+Rearranging is only possible while reviewing: before that the set is incomplete,
+and after Accept the strip is already being built.
 
 ## Two cameras, two entirely separate paths
 

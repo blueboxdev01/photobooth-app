@@ -287,6 +287,30 @@ a:hover { text-decoration: underline; }
   border-style: dashed; color: var(--ink-faint); font-size: 22px; font-weight: 700;
 }
 
+/* --- rearranging the shots during review --- */
+.frame--movable { cursor: grab; transition: border-color .12s, transform .12s; }
+.frame--movable:active { cursor: grabbing; }
+.frame--dragging { opacity: .4; }
+/* The drop target, shown as a leading edge rather than a full outline so it is
+   obvious which side the shot is going in on. */
+.frame--over { border-color: var(--accent); transform: translateY(-2px); }
+.frame--over img { box-shadow: inset 3px 0 0 var(--accent); }
+.frame__move {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 5px 6px; border-top: 1px solid var(--line);
+}
+.frame__move .btn--icon { width: 30px; height: 26px; font-size: 15px; line-height: 1; }
+.frame__move .btn--icon:hover:not(:disabled) {
+  color: var(--accent); border-color: var(--accent);
+}
+.frame__slot {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-faint); font-weight: 700;
+}
+.frame__shot {
+  font-weight: 700; color: var(--ink-soft);
+}
+
 .result { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
 .result__strip {
   max-height: 320px; width: auto; border-radius: var(--radius-sm);
