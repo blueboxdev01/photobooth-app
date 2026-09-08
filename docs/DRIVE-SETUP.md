@@ -118,6 +118,10 @@ next to `ClientId` in the same file.
 Run a session with the mock camera and watch **Setup → Guest delivery**. *Waiting*
 should go to 1 and back to 0, and the guest screen should show a QR.
 
+The QR appears **while the upload is still running** — the strip goes up first
+and the link works as soon as it lands. A guest who scans straight away sees
+their strip, and the raw photos appear in the folder over the next minute or so.
+
 **Scan it from a phone on mobile data, not your wifi.** A link that only works on
 the booth's own network is the classic way this looks fine in the kitchen and
 fails at the venue.

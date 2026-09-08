@@ -47,6 +47,12 @@ a guest their QR code and nothing else. Uploads run in the background and retry
 with a widening gap; a session that never uploaded can be published from Setup
 days later.
 
+**The QR appears before the upload finishes.** The strip goes up first and the
+link is published the moment it lands, while the raw photos -- which are most of
+the ~25 MB -- are still going. Waiting for the whole session would routinely put
+the code on screen after the guest had walked away, which is the same as no code.
+A guest who scans early sees their strip and watches the rest arrive.
+
 There is no upload database. The queue **is** the archive — the work is every
 session whose `session.json` says it has not been published yet. So it survives
 being killed mid-upload with no recovery code, cannot disagree with what is

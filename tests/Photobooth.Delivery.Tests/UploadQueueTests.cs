@@ -414,6 +414,95 @@ public sealed class UploadQueueTests : IDisposable
         Assert.Null(queue.Republish("2026-01-01_0000_nope"));
     }
 
+    // --- the link arrives before the upload finishes -------------------------
+
+    /// <summary>
+    /// A real session is around 25 MB and the raws are nearly all of it. The link
+    /// is usable once the folder and strip exist, so it is written down and
+    /// announced then -- otherwise the QR appears after the guest has walked off,
+    /// which is the same as no QR at all.
+    /// </summary>
+    [Fact]
+    public async Task The_link_is_recorded_as_soon_as_it_works_not_when_the_upload_ends()
+    {
+        var publisher = new FakePublisher();
+        // Fails after announcing the link, so what is on disk can only have come
+        // from the announcement rather than from a successful finish.
+        publisher.Default = PublishResult.Fail(PublishFailure.Transient, "dropped mid-upload");
+
+        var queue = Queue(publisher);
+        var record = queue.Enqueue(Archived());
+
+        await queue.RunOnceAsync();
+
+        var after = Reload(record.FolderName);
+        Assert.Equal(UploadStates.Pending, after.UploadState);
+        Assert.NotNull(after.DriveUrl);
+        Assert.Equal($"drive-{record.FolderName}", after.DriveFolderId);
+    }
+
+    /// <summary>The screens are told, or the guest display never shows the code.</summary>
+    [Fact]
+    public async Task The_screens_are_told_the_moment_the_link_works()
+    {
+        var publisher = new FakePublisher();
+        publisher.Default = PublishResult.Fail(PublishFailure.Transient, "dropped mid-upload");
+
+        var queue = Queue(publisher);
+        var announced = new List<SessionRecord>();
+        queue.Updated += (_, r) => announced.Add(r);
+
+        queue.Enqueue(Archived());
+        await queue.RunOnceAsync();
+
+        Assert.Contains(announced, r => r.DriveUrl is not null
+                                        && r.UploadState == UploadStates.Pending);
+    }
+
+    /// <summary>
+    /// And the folder it earned must survive the failure, or the retry creates a
+    /// second folder and the QR already handed out points at the abandoned one.
+    /// </summary>
+    [Fact]
+    public async Task A_retry_resumes_into_the_folder_the_link_already_points_at()
+    {
+        var publisher = new FakePublisher();
+        publisher.Default = PublishResult.Fail(PublishFailure.Transient, "dropped mid-upload");
+
+        var queue = Queue(publisher);
+        var record = queue.Enqueue(Archived());
+
+        await queue.RunOnceAsync();
+        var afterFailure = Reload(record.FolderName);
+        var link = afterFailure.DriveUrl;
+
+        publisher.Default = PublishResult.Success("folder-id", "unused");
+        _time.Advance(TimeSpan.FromSeconds(30));
+        await queue.RunOnceAsync();
+
+        var done = Reload(record.FolderName);
+        Assert.Equal(UploadStates.Uploaded, done.UploadState);
+        Assert.Equal(afterFailure.DriveFolderId, done.DriveFolderId);
+        Assert.Equal(link, done.DriveUrl);
+    }
+
+    /// <summary>The same, for a session that gives up rather than retrying.</summary>
+    [Fact]
+    public async Task A_parked_session_keeps_the_link_it_had_handed_out()
+    {
+        var publisher = new FakePublisher();
+        publisher.Default = PublishResult.Fail(PublishFailure.Permanent, "gave up");
+
+        var queue = Queue(publisher);
+        var record = queue.Enqueue(Archived());
+
+        await queue.RunOnceAsync();
+
+        var after = Reload(record.FolderName);
+        Assert.Equal(UploadStates.Failed, after.UploadState);
+        Assert.NotNull(after.DriveFolderId);
+    }
+
     // --- what the console shows ---------------------------------------------
 
     [Fact]

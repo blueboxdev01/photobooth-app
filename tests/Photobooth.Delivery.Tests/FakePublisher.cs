@@ -22,6 +22,12 @@ public sealed class FakePublisher : IGalleryPublisher
     /// <summary>Thrown instead of returning, to prove a throw is not fatal.</summary>
     public Exception? Throws { get; set; }
 
+    /// <summary>
+    /// Announce the link before failing or returning, as the real publisher does
+    /// once the folder and strip are up.
+    /// </summary>
+    public bool AnnouncesLink { get; set; } = true;
+
     /// <summary>Used once each, in order; then <see cref="Default"/> takes over.</summary>
     public FakePublisher Script(params PublishResult[] results)
     {
@@ -37,9 +43,18 @@ public sealed class FakePublisher : IGalleryPublisher
         PublishResult.Success("folder-id", "https://drive.example/folder-id");
 
     public Task<PublishResult> PublishAsync(
-        SessionRecord record, string folder, CancellationToken cancellationToken)
+        SessionRecord record,
+        string folder,
+        Action<string, string>? linkReady,
+        CancellationToken cancellationToken)
     {
         Calls.Add((record.FolderName, folder));
+
+        if (AnnouncesLink)
+        {
+            var id = record.DriveFolderId ?? $"drive-{record.FolderName}";
+            linkReady?.Invoke(id, $"https://drive.example/{id}");
+        }
 
         if (Throws is { } ex)
         {

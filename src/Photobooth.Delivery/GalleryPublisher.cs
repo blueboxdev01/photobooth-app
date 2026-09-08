@@ -97,6 +97,18 @@ public interface IGalleryPublisher
     /// so the folder is never empty if a guest scans immediately.
     /// </summary>
     /// <param name="folder">The session's folder on disk, the source of truth.</param>
+    /// <param name="linkReady">
+    /// Called with (folderId, url) the moment the folder exists and the strip is
+    /// in it -- before the raw photos, which are the bulk of the megabytes.
+    ///
+    /// This is what makes the QR appear while the guest is still standing there.
+    /// A real session is around 25 MB, so waiting for the whole upload can easily
+    /// outlast the guest on a venue's wifi, and a code that arrives after they
+    /// have gone is the same as no code at all.
+    /// </param>
     Task<PublishResult> PublishAsync(
-        SessionRecord record, string folder, CancellationToken cancellationToken);
+        SessionRecord record,
+        string folder,
+        Action<string, string>? linkReady,
+        CancellationToken cancellationToken);
 }

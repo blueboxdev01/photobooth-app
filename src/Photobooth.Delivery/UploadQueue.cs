@@ -60,11 +60,12 @@ public sealed class UploadQueue : BackgroundService
     }
 
     /// <summary>
-    /// Raised when a session's delivery reaches a conclusion, good or bad, so the
-    /// console and the guest screen can be told. The guest screen in particular
-    /// is showing a "preparing your link" message until this fires.
+    /// Raised whenever a session's delivery record changes -- including the
+    /// moment its link becomes usable, part-way through the upload -- so the
+    /// console and the guest screen can be told. The guest screen shows
+    /// "preparing your link" until this brings it one with a URL.
     /// </summary>
-    public event EventHandler<SessionRecord>? Settled;
+    public event EventHandler<SessionRecord>? Updated;
 
     public DeliveryStatus Status()
     {
@@ -217,10 +218,24 @@ public sealed class UploadQueue : BackgroundService
             return;
         }
 
+        // The link becomes usable as soon as the folder and the strip exist,
+        // which is well before the raw photos finish. Writing it down and
+        // announcing it there and then is what puts the QR in front of the guest
+        // while they are still standing at the booth.
+        void LinkReady(string folderId, string url)
+        {
+            var withLink = record with { DriveFolderId = folderId, DriveUrl = url };
+            _archive.WriteRecord(folder, withLink);
+            _logger.LogInformation(
+                "{Folder} is reachable at {Url}; the photos are still uploading.",
+                record.FolderName, url);
+            Updated?.Invoke(this, withLink);
+        }
+
         PublishResult result;
         try
         {
-            result = await _publisher.PublishAsync(record, folder, cancellationToken);
+            result = await _publisher.PublishAsync(record, folder, LinkReady, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -254,7 +269,7 @@ public sealed class UploadQueue : BackgroundService
             }
 
             _logger.LogInformation("Published {Folder} to {Url}.", record.FolderName, result.Url);
-            Settled?.Invoke(this, done);
+            Updated?.Invoke(this, done);
             return;
         }
 
@@ -272,7 +287,11 @@ public sealed class UploadQueue : BackgroundService
             _options.BaseBackoffSeconds * Math.Pow(2, attempts - 1),
             _options.MaxBackoffSeconds);
 
-        var waiting = record with { UploadAttempts = attempts, UploadError = error };
+        // Re-read: LinkReady may have written a folder id since, and losing it
+        // here would make the retry create a second folder for the same guest.
+        var current = _archive.All().FirstOrDefault(r => r.FolderName == record.FolderName)
+            ?? record;
+        var waiting = current with { UploadAttempts = attempts, UploadError = error };
         _archive.WriteRecord(folder, waiting);
 
         lock (_sync)
@@ -293,7 +312,10 @@ public sealed class UploadQueue : BackgroundService
         string error,
         PublishFailure failure = PublishFailure.Permanent)
     {
-        var failed = record with
+        var current = _archive.All().FirstOrDefault(r => r.FolderName == record.FolderName)
+            ?? record;
+
+        var failed = current with
         {
             UploadState = UploadStates.Failed,
             UploadAttempts = attempts,
@@ -313,6 +335,6 @@ public sealed class UploadQueue : BackgroundService
             + "The photos are safe on disk and it can be re-published.",
             record.FolderName, attempts, failure, error);
 
-        Settled?.Invoke(this, failed);
+        Updated?.Invoke(this, failed);
     }
 }

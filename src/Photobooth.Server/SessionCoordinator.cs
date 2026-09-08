@@ -68,7 +68,7 @@ public sealed class SessionCoordinator : IHostedService
         _camera.StatusChanged += OnCameraStatus;
         _camera.IngestDecision += OnIngestDecision;
         _engine.Changed += OnSessionChanged;
-        _uploads.Settled += OnDeliverySettled;
+        _uploads.Updated += OnDeliveryUpdated;
 
         // Nothing already sitting in the folder counts until a session starts.
         _camera.AcceptFrom = _time.GetUtcNow();
@@ -81,7 +81,7 @@ public sealed class SessionCoordinator : IHostedService
         _camera.StatusChanged -= OnCameraStatus;
         _camera.IngestDecision -= OnIngestDecision;
         _engine.Changed -= OnSessionChanged;
-        _uploads.Settled -= OnDeliverySettled;
+        _uploads.Updated -= OnDeliveryUpdated;
         await _camera.DisposeAsync();
     }
 
@@ -170,10 +170,11 @@ public sealed class SessionCoordinator : IHostedService
     }
 
     /// <summary>
-    /// An upload finished or gave up. Push it, so the guest screen can swap
-    /// "preparing your link" for the QR without anyone refreshing anything.
+    /// A session's delivery changed -- its link became usable, or the upload
+    /// finished or gave up. Push it, so the guest screen swaps "preparing your
+    /// link" for the QR without anyone refreshing anything.
     /// </summary>
-    private void OnDeliverySettled(object? sender, SessionRecord record) =>
+    private void OnDeliveryUpdated(object? sender, SessionRecord record) =>
         BroadcastDelivery(record);
 
     private void BroadcastDelivery(SessionRecord record)

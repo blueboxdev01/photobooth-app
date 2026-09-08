@@ -28,7 +28,10 @@ public sealed class DrivePublisher(
     public bool Authorised => auth.Authorised;
 
     public async Task<PublishResult> PublishAsync(
-        SessionRecord record, string folder, CancellationToken cancellationToken)
+        SessionRecord record,
+        string folder,
+        Action<string, string>? linkReady,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -44,21 +47,36 @@ public sealed class DrivePublisher(
 
             // Re-use the folder if a previous attempt got that far, so a retry
             // after a half-finished upload does not leave two folders behind.
+            var resuming = record.DriveFolderId is not null;
             var folderId = record.DriveFolderId
                 ?? await CreateFolderAsync(drive, record, cancellationToken);
 
-            // The strip goes first, so a guest who scans immediately sees the
-            // thing they actually want rather than an empty folder.
-            await UploadAsync(drive, folderId, Path.Combine(folder, record.Strip),
-                "strip.jpg", cancellationToken);
+            var url = $"https://drive.google.com/drive/folders/{folderId}";
 
-            foreach (var photo in record.Photos)
+            // On a retry, whatever the last attempt managed to upload is already
+            // up there. Drive happily accepts two files with the same name, so
+            // without this a guest ends up with their strip three times.
+            var already = resuming
+                ? await ExistingNamesAsync(drive, folderId, cancellationToken)
+                : [];
+
+            // The strip goes first, and the link is published the moment it
+            // lands: the raws are the bulk of the megabytes, and a guest should
+            // not have to wait through them for a code to appear.
+            if (!already.Contains("strip.jpg"))
+            {
+                await UploadAsync(drive, folderId, Path.Combine(folder, record.Strip),
+                    "strip.jpg", cancellationToken);
+            }
+
+            linkReady?.Invoke(folderId, url);
+
+            foreach (var photo in record.Photos.Where(p => !already.Contains(p)))
             {
                 await UploadAsync(drive, folderId, Path.Combine(folder, photo),
                     photo, cancellationToken);
             }
 
-            var url = $"https://drive.google.com/drive/folders/{folderId}";
             logger.LogInformation(
                 "Published {Session} as {Count} files in {Url}.",
                 record.FolderName, record.Photos.Count + 1, url);
@@ -86,6 +104,19 @@ public sealed class DrivePublisher(
         {
             return PublishResult.Fail(PublishFailure.Transient, "The upload timed out.");
         }
+    }
+
+    /// <summary>What is already in the folder, so a retry does not duplicate it.</summary>
+    private static async Task<HashSet<string>> ExistingNamesAsync(
+        DriveService drive, string folderId, CancellationToken cancellationToken)
+    {
+        var request = drive.Files.List();
+        request.Q = $"'{folderId}' in parents and trashed = false";
+        request.Fields = "files(name)";
+        request.PageSize = 100;
+
+        var listed = await request.ExecuteAsync(cancellationToken);
+        return [.. listed.Files.Select(f => f.Name)];
     }
 
     private async Task<string> CreateFolderAsync(
