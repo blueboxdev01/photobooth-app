@@ -19,6 +19,11 @@ wrong and neither of which reports a useful error afterwards:
 
 The rest is routine.
 
+> **Whoever does this is the account the photos go to.** The sign-in grants
+> access to *your own* Drive, so if you are setting this up on a test machine,
+> sessions land in your Drive rather than anyone else's. That is fine for
+> testing — just know which account you are pointing it at.
+
 ## 1. A dedicated booth account
 
 Make a **new Google account** for the booth. Not your personal one.

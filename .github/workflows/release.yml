@@ -143,7 +143,13 @@ jobs:
         run: |
           $name = "photobooth-$($env:GITHUB_REF_NAME)-win-x64"
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          # The tester gets the sheet they work from, and -- since whoever runs
+          # a booth configures their own Google account -- the Drive instructions
+          # and the config template to copy. Sending someone a build and then
+          # telling them to go and find the setup doc on GitHub is a bad handover.
           Copy-Item docs/FIELD-TEST.md artifacts/publish/ -ErrorAction SilentlyContinue
+          Copy-Item docs/DRIVE-SETUP.md artifacts/publish/ -ErrorAction SilentlyContinue
+          Copy-Item appsettings.Local.example.json artifacts/publish/ -ErrorAction SilentlyContinue
           Compress-Archive -Path artifacts/publish/* -DestinationPath "artifacts/$name.zip"
           echo "ASSET=artifacts/$name.zip" >> $env:GITHUB_ENV
 
