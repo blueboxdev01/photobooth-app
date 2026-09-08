@@ -36,17 +36,27 @@ Signed in as the booth account, at <https://console.cloud.google.com>:
 
 1. **Create a project.** Any name; "Photobooth" is fine.
 2. **APIs & Services → Library → Google Drive API → Enable.**
-3. **APIs & Services → OAuth consent screen.**
-   - User type: **External**.
+3. **The consent screen.** Google has renamed this: look for **Google Auth
+   Platform** in the sidebar, or **APIs & Services → OAuth consent screen** in
+   the older layout.
+   - User type / audience: **External**.
    - Fill in the app name, your support email, and the developer contact. Nothing
      else is required.
    - Scopes: add **`.../auth/drive.file`** and nothing more. This is the scope
      that only reaches files the app itself created — it cannot see the rest of
      the account's Drive, and because it is **non-sensitive** Google needs no
      verification and no security assessment.
-   - **Then press Publish app**, so the status reads *In production*. This is the
-     step that matters. Because the scope is non-sensitive, publishing is
-     immediate — there is no review to wait for.
+   - **Then press Publish app**, on the **Audience** page in the new layout, so
+     the status reads **In production**.
+
+   > **Do not skip that last step, and do not work around it by adding yourself
+   > as a test user.** While the app is in *Testing*, signing in fails outright
+   > with *"has not completed the Google verification process"* — and even once
+   > you add a tester to get past that, **Google revokes the refresh token after
+   > seven days**, so the booth would stop uploading roughly once a week with no
+   > warning. Publishing costs nothing and takes effect immediately, because the
+   > scope is non-sensitive. There is no review to wait for and the app never
+   > needs "verifying".
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID.**
    - Application type: **Desktop app**.
    - Copy the **client ID** and **client secret**.
@@ -116,6 +126,7 @@ fails at the venue.
 
 | What you see | What it means |
 |---|---|
+| **Access blocked: … has not completed the Google verification process** (403 `access_denied`), at sign-in | The consent screen is still in *Testing*. Go to **Audience → Publish app** so it reads *In production*, then try again. Adding yourself as a test user also gets past this screen, but leaves you with the seven-day token expiry above |
 | *Not signed in — nothing is being uploaded* | No token, or Google revoked it. Press **Re-authorise**. If this comes back every week, the consent screen is still in *Testing* |
 | *The booth's Google account is out of storage* | The 15 GB is full. Not retried, because retrying cannot fix it. Clear space or upgrade |
 | Sessions sitting in *Waiting* | No network. They retry on their own with a widening gap and go when the connection returns |
