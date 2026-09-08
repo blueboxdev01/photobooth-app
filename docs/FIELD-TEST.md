@@ -10,6 +10,11 @@ it.
 
 ---
 
+> **Nothing is uploaded anywhere.** This build has no Google account set up, so
+> finished sessions stay in your output folder and the guest screen says to ask
+> for the photos. You need no Google account and no internet connection for any
+> test below.
+
 ## What you need
 
 | | |

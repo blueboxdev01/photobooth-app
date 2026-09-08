@@ -23,7 +23,16 @@ public sealed class SessionCoordinator : IHostedService
     private readonly StripCompositor _compositor;
     private readonly FileTemplateProvider _templates;
     private readonly SessionArchive _archive;
+    private readonly UploadQueue _uploads;
     private readonly ILogger<SessionCoordinator> _logger;
+
+    /// <summary>
+    /// The session the guest screen is currently showing, so a delivery update
+    /// can be matched to it. Uploads outlive the session that produced them --
+    /// one can still be draining three guests later -- so "the QR is ready" has
+    /// to say which session it is ready for.
+    /// </summary>
+    private string? _showing;
 
     // Generated when the session is armed so the archive folder and the eventual
     // QR link refer to the same session.
@@ -38,6 +47,7 @@ public sealed class SessionCoordinator : IHostedService
         StripCompositor compositor,
         FileTemplateProvider templates,
         SessionArchive archive,
+        UploadQueue uploads,
         ILogger<SessionCoordinator> logger)
     {
         _camera = camera;
@@ -48,6 +58,7 @@ public sealed class SessionCoordinator : IHostedService
         _compositor = compositor;
         _templates = templates;
         _archive = archive;
+        _uploads = uploads;
         _logger = logger;
     }
 
@@ -57,6 +68,7 @@ public sealed class SessionCoordinator : IHostedService
         _camera.StatusChanged += OnCameraStatus;
         _camera.IngestDecision += OnIngestDecision;
         _engine.Changed += OnSessionChanged;
+        _uploads.Settled += OnDeliverySettled;
 
         // Nothing already sitting in the folder counts until a session starts.
         _camera.AcceptFrom = _time.GetUtcNow();
@@ -69,6 +81,7 @@ public sealed class SessionCoordinator : IHostedService
         _camera.StatusChanged -= OnCameraStatus;
         _camera.IngestDecision -= OnIngestDecision;
         _engine.Changed -= OnSessionChanged;
+        _uploads.Settled -= OnDeliverySettled;
         await _camera.DisposeAsync();
     }
 
@@ -81,6 +94,7 @@ public sealed class SessionCoordinator : IHostedService
         _camera.ResetSeen();
         _camera.AcceptFrom = _time.GetUtcNow();
         _token = SessionArchive.NewToken();
+        _showing = null;
         return _engine.Arm();
     }
 
@@ -131,8 +145,16 @@ public sealed class SessionCoordinator : IHostedService
                 _token, template, snapshot.Photos, temp,
                 snapshot.StartedUtc ?? _time.GetUtcNow());
 
+            // Queued, not awaited. The guest is standing there and the photos are
+            // already safe on disk; a venue with no signal must cost them a QR
+            // code, not their session.
+            record = _uploads.Enqueue(record);
+            _showing = record.FolderName;
+
             _engine.CompleteComposing(
                 $"/api/sessions/{record.FolderName}/{record.Strip}", record.FolderName);
+
+            BroadcastDelivery(record);
         }
         catch (Exception ex)
         {
@@ -145,6 +167,54 @@ public sealed class SessionCoordinator : IHostedService
         {
             try { File.Delete(temp); } catch { /* best effort */ }
         }
+    }
+
+    /// <summary>
+    /// An upload finished or gave up. Push it, so the guest screen can swap
+    /// "preparing your link" for the QR without anyone refreshing anything.
+    /// </summary>
+    private void OnDeliverySettled(object? sender, SessionRecord record) =>
+        BroadcastDelivery(record);
+
+    private void BroadcastDelivery(SessionRecord record)
+    {
+        var status = _uploads.Status();
+
+        _ = _hub.Clients.All.SendAsync(SessionHub.DeliveryMessage, new DeliveryUpdate(
+                status.Enabled,
+                status.Authorised,
+                status.Pending,
+                status.Failed,
+                status.LastError,
+                record.FolderName,
+                record.UploadState,
+                record.DriveUrl,
+                record.DriveUrl is null ? null : $"/api/sessions/{record.FolderName}/qr.png",
+                record.UploadError))
+            .ContinueWith(
+                t => _logger.LogWarning(t.Exception, "Failed to push delivery state."),
+                TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>The delivery state of the session the screens are showing.</summary>
+    public DeliveryUpdate CurrentDelivery()
+    {
+        var status = _uploads.Status();
+        var record = _showing is null
+            ? null
+            : _archive.All().FirstOrDefault(r => r.FolderName == _showing);
+
+        return new DeliveryUpdate(
+            status.Enabled,
+            status.Authorised,
+            status.Pending,
+            status.Failed,
+            status.LastError,
+            record?.FolderName,
+            record?.UploadState,
+            record?.DriveUrl,
+            record?.DriveUrl is null ? null : $"/api/sessions/{record.FolderName}/qr.png",
+            record?.UploadError);
     }
 
     private void OnCameraStatus(object? sender, CameraStatusEventArgs e)
@@ -162,3 +232,24 @@ public sealed class SessionCoordinator : IHostedService
                 TaskContinuationOptions.OnlyOnFaulted);
     }
 }
+
+/// <summary>
+/// What both screens are told about delivery.
+///
+/// Deliberately not part of <see cref="SessionSnapshot"/>: an upload outlives the
+/// session that produced it, so folding it into the session state would either
+/// hold a finished session open until the network came back, or lose track of an
+/// upload the moment the next guest stepped in. Hence <see cref="SessionFolder"/>
+/// -- the screens match it against the session they are showing.
+/// </summary>
+public sealed record DeliveryUpdate(
+    bool Enabled,
+    bool Authorised,
+    int Pending,
+    int Failed,
+    string? LastError,
+    string? SessionFolder,
+    string? State,
+    string? Url,
+    string? QrUrl,
+    string? Error);

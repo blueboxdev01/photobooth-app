@@ -16,6 +16,12 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = AppContext.BaseDirectory,
 });
 
+// Untracked local overrides, which is where the Google OAuth client lives. Read
+// after appsettings.json so it wins, optional so a build without one runs
+// unchanged -- which is exactly the field-test build.
+builder.Configuration.AddJsonFile(
+    "appsettings.Local.json", optional: true, reloadOnChange: false);
+
 builder.Services.Configure<WatchFolderOptions>(
     builder.Configuration.GetSection(WatchFolderOptions.SectionName));
 builder.Services.Configure<MockEosUtilityOptions>(
@@ -26,6 +32,8 @@ builder.Services.Configure<TemplateOptions>(
     builder.Configuration.GetSection(TemplateOptions.SectionName));
 builder.Services.Configure<ArchiveOptions>(
     builder.Configuration.GetSection(ArchiveOptions.SectionName));
+builder.Services.Configure<DriveOptions>(
+    builder.Configuration.GetSection(DriveOptions.SectionName));
 
 // Relative paths resolve against the app folder rather than whatever directory
 // the shell happened to be in, so `dotnet run` and an unzipped published build
@@ -41,6 +49,7 @@ builder.Services.PostConfigure<MockEosUtilityOptions>(
     o => o.SourceFolder = ResolveAppPath(o.SourceFolder));
 builder.Services.PostConfigure<TemplateOptions>(o => o.Folder = ResolveAppPath(o.Folder));
 builder.Services.PostConfigure<ArchiveOptions>(o => o.Folder = ResolveAppPath(o.Folder));
+builder.Services.PostConfigure<DriveOptions>(o => o.TokenStore = ResolveAppPath(o.TokenStore));
 
 static string ResolveAppPath(string path) => Path.IsPathRooted(path)
     ? path
@@ -89,6 +98,15 @@ builder.Services.PostConfigure<ArchiveOptions>(o =>
         o.Folder = settingsStore.Current.OutputFolder!;
     }
 });
+builder.Services.PostConfigure<DriveOptions>(o =>
+{
+    // Configuration decides whether Drive is *possible* -- the field-test build
+    // ships with no client at all. The operator's switch only ever turns it off.
+    if (settingsStore.Current.DriveEnabled is { } enabled)
+    {
+        o.Enabled = enabled;
+    }
+});
 builder.Services.PostConfigure<SessionSettings>(o =>
 {
     o.CountdownSeconds = settingsStore.Current.CountdownSeconds ?? o.CountdownSeconds;
@@ -110,6 +128,14 @@ builder.Services.AddSingleton<DiagnosticsService>();
 builder.Services.AddSingleton<SessionCoordinator>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionCoordinator>());
 
+// Delivery. Off unless both a client is configured and the operator says so, so
+// the field-test build uploads nothing and needs no Google account.
+builder.Services.AddSingleton<DriveAuth>();
+builder.Services.AddSingleton<DrivePublisher>();
+builder.Services.AddSingleton<IGalleryPublisher>(sp => sp.GetRequiredService<DrivePublisher>());
+builder.Services.AddSingleton<UploadQueue>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<UploadQueue>());
+
 var app = builder.Build();
 
 app.UseDefaultFiles();
@@ -120,17 +146,64 @@ app.MapHub<SessionHub>("/hub/session");
 app.MapTemplateEndpoints();
 app.MapSettingsEndpoints();
 
-app.MapGet("/api/state", (WatchFolderCamera camera, SessionEngine engine) => Results.Ok(new
-{
-    camera = new
+app.MapGet("/api/state", (
+    WatchFolderCamera camera, SessionEngine engine, SessionCoordinator coordinator) =>
+    Results.Ok(new
     {
-        status = camera.Status.ToString(),
-        canTrigger = camera.Capabilities.CanTrigger,
-        watchFolder = camera.WatchFolderPath,
-    },
-    session = engine.Snapshot,
-    build = new { version = DiagnosticsService.Version },
-}));
+        camera = new
+        {
+            status = camera.Status.ToString(),
+            canTrigger = camera.Capabilities.CanTrigger,
+            watchFolder = camera.WatchFolderPath,
+        },
+        session = engine.Snapshot,
+        delivery = coordinator.CurrentDelivery(),
+        build = new { version = DiagnosticsService.Version },
+    }));
+
+// --- delivery ---
+
+app.MapGet("/api/delivery", (SessionCoordinator coordinator) =>
+    Results.Ok(coordinator.CurrentDelivery()));
+
+// Sign in to the booth's Google account. Deliberately only reachable from Setup:
+// this opens a browser window, which must never happen over a guest display
+// mid-event, so the upload queue reports "needs authorising" instead of calling it.
+app.MapPost("/api/delivery/authorize", async (
+    DriveAuth auth, UploadQueue queue, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        await auth.AuthorizeAsync(cancellationToken);
+        var account = await auth.RefreshAccountAsync(cancellationToken);
+        return Results.Ok(new { account, status = queue.Status() });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapPost("/api/delivery/sign-out", async (DriveAuth auth) =>
+{
+    await auth.SignOutAsync();
+    return Results.Ok(new { signedOut = true });
+});
+
+// Put a session back in the queue: one that gave up, or one captured while
+// delivery was switched off.
+app.MapPost("/api/delivery/republish/{folder}", (string folder, UploadQueue queue) =>
+{
+    if (!IsSafeSegment(folder))
+    {
+        return Results.BadRequest();
+    }
+
+    var record = queue.Republish(folder);
+    return record is null
+        ? Results.NotFound(new { error = $"No session called {folder}." })
+        : Results.Ok(record);
+});
 
 // --- diagnostics: how a test in another building gets debugged ---
 
@@ -224,6 +297,22 @@ app.MapGet("/api/sessions", (SessionArchive archive) => Results.Ok(new
     diskIsLow = archive.DiskIsLow(),
     sessions = archive.All().Take(50),
 }));
+
+// The guest's QR, rendered from the link recorded for that session. Generated
+// here rather than in the browser so the code cannot drift from the URL, or fail
+// to load on the one screen that has to work.
+app.MapGet("/api/sessions/{folder}/qr.png", (string folder, SessionArchive archive) =>
+{
+    if (!IsSafeSegment(folder))
+    {
+        return Results.BadRequest();
+    }
+
+    var record = archive.All().FirstOrDefault(r => r.FolderName == folder);
+    return record?.DriveUrl is null
+        ? Results.NotFound()
+        : Results.File(QrRenderer.Png(record.DriveUrl), "image/png");
+});
 
 static bool IsSafeSegment(string value) =>
     !string.IsNullOrWhiteSpace(value)

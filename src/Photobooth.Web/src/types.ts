@@ -40,6 +40,26 @@ export interface SessionSnapshot {
   sessionFolder: string | null
 }
 
+/**
+ * Delivery, which is deliberately not part of the session snapshot: an upload
+ * outlives the session that produced it, so `sessionFolder` says which session
+ * this update is about and the screens match it against the one they are showing.
+ */
+export interface DeliveryUpdate {
+  /** Uploading is switched on and a Google client is configured. */
+  enabled: boolean
+  /** A token is held. False means somebody has to press Re-authorise. */
+  authorised: boolean
+  pending: number
+  failed: number
+  lastError: string | null
+  sessionFolder: string | null
+  state: 'NotAttempted' | 'Pending' | 'Uploaded' | 'Failed' | null
+  url: string | null
+  qrUrl: string | null
+  error: string | null
+}
+
 export interface CameraInfo {
   status: 'Disconnected' | 'Ready' | 'Faulted'
   canTrigger: boolean

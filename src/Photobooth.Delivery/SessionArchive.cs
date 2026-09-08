@@ -18,7 +18,15 @@ public sealed class ArchiveOptions
     public long LowDiskWarningBytes { get; set; } = 2L * 1024 * 1024 * 1024;
 }
 
-/// <summary>What a finished session left on disk. Mirrors <c>session.json</c>.</summary>
+/// <summary>
+/// What a finished session left on disk. Mirrors <c>session.json</c>.
+///
+/// The upload fields are not just a report -- they *are* the delivery queue. A
+/// session waiting to be published is one whose <see cref="UploadState"/> says
+/// so, which means the queue needs no database of its own, cannot disagree with
+/// the archive, survives a crash without doing anything, and can be unstuck by
+/// editing a text file.
+/// </summary>
 public sealed record SessionRecord(
     string Token,
     string FolderName,
@@ -28,9 +36,11 @@ public sealed record SessionRecord(
     string Strip,
     IReadOnlyList<string> Photos,
     IReadOnlyList<string> SourceFiles,
-    string UploadState = "NotAttempted",
+    string UploadState = UploadStates.NotAttempted,
     string? DriveFolderId = null,
-    string? DriveUrl = null);
+    string? DriveUrl = null,
+    int UploadAttempts = 0,
+    string? UploadError = null);
 
 /// <summary>
 /// Writes each session to its own folder on disk.

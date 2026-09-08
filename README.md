@@ -20,15 +20,41 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M4 Compositor + 2×6 strip + local archive | done — golden-image tested |
 | **M5 Field-test build** | **done — this is what your colleague runs** |
 | M6 Remote hardware bring-up | waiting on the camera |
-| M7 Google Drive delivery + QR | not started |
+| M7 Google Drive delivery + QR | done — off by default, see [docs/DRIVE-SETUP.md](docs/DRIVE-SETUP.md) |
 | M8 Frame upload + slot editor | done — `/templates` |
 | Operator console | done — dashboard, light/dark, layout and folder settings |
 
-115 tests passing. Nothing has yet been verified against a real camera.
+144 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
-and a `session.json` describing them. From M7 the Drive folder receives a copy of
-exactly that folder under the same name.
+and a `session.json` describing them. The Drive folder receives a copy of exactly
+that folder under the same name.
+
+## Guest delivery
+
+Each finished session becomes **its own Google Drive folder**, shared by link,
+and the guest screen shows a QR pointing at it. They scan it and get their own
+photos — there is no gallery, and no id to edit to reach anyone else's session.
+
+**Off unless you set it up.** With no Google account configured — which is how
+the field-test build ships — sessions are saved to the output folder and the
+guest screen says to ask for them. Turning it on is
+**[docs/DRIVE-SETUP.md](docs/DRIVE-SETUP.md)**, about fifteen minutes.
+
+**The guest never waits on the network.** The strip is composed and everything is
+written to disk *before* an upload is attempted, so a venue with no signal costs
+a guest their QR code and nothing else. Uploads run in the background and retry
+with a widening gap; a session that never uploaded can be published from Setup
+days later.
+
+There is no upload database. The queue **is** the archive — the work is every
+session whose `session.json` says it has not been published yet. So it survives
+being killed mid-upload with no recovery code, cannot disagree with what is
+actually on disk, and a stuck session can be unstuck in Notepad.
+
+Failures are told apart, because retrying does not fix all of them equally: a
+dropped network is retried, a revoked sign-in or a full account is not, and both
+say so on the operator screen rather than stalling quietly.
 
 ## Rearranging the shots
 

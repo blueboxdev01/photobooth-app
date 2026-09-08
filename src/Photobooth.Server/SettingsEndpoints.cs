@@ -19,7 +19,8 @@ public sealed record SettingsUpdate(
     int? PhotoCount,
     string? CanvasPresetId,
     string? DisplayBackgroundColor,
-    bool? ClearDisplayBackgroundImage);
+    bool? ClearDisplayBackgroundImage,
+    bool? DriveEnabled);
 
 /// <summary>
 /// Everything an operator sets up per event: where the camera's photos arrive,
@@ -37,7 +38,9 @@ public static class SettingsEndpoints
             WatchFolderCamera camera,
             SessionArchive archive,
             FileTemplateProvider templates,
-            IOptions<SessionSettings> session) =>
+            IOptions<SessionSettings> session,
+            DriveAuth driveAuth,
+            UploadQueue uploads) =>
         {
             var current = templates.Current;
             return Results.Ok(new
@@ -78,6 +81,17 @@ public static class SettingsEndpoints
                         ? null
                         : "/api/settings/display-background",
                 },
+
+                delivery = new
+                {
+                    // Configured says a Google client exists in this build at
+                    // all. The field-test build has none, so the whole section
+                    // shows as unavailable rather than as a switch that does
+                    // nothing when pressed.
+                    configured = driveAuth.Configured,
+                    account = driveAuth.Account,
+                    status = uploads.Status(),
+                },
             });
         });
 
@@ -88,7 +102,8 @@ public static class SettingsEndpoints
             SessionArchive archive,
             FileTemplateProvider templates,
             IOptions<ArchiveOptions> archiveOptions,
-            IOptions<SessionSettings> session) =>
+            IOptions<SessionSettings> session,
+            IOptions<DriveOptions> driveOptions) =>
         {
             // Staged on a copy and validated in full before anything is applied.
             // Mutating the live settings as we went meant a rejected request could
@@ -156,6 +171,11 @@ public static class SettingsEndpoints
                 settings.NoPhotoTimeoutSeconds = timeout;
             }
 
+            if (update.DriveEnabled is { } driveEnabled)
+            {
+                settings.DriveEnabled = driveEnabled;
+            }
+
             if (update.DisplayBackgroundColor is { } colour)
             {
                 if (!LooksLikeHexColour(colour))
@@ -199,6 +219,13 @@ public static class SettingsEndpoints
             if (settings.NoPhotoTimeoutSeconds is { } appliedTimeout)
             {
                 session.Value.NoPhotoTimeoutSeconds = appliedTimeout;
+            }
+
+            if (settings.DriveEnabled is { } appliedDrive)
+            {
+                // Immediate, like the folders: nobody should have to restart the
+                // booth to stop it uploading.
+                driveOptions.Value.Enabled = appliedDrive;
             }
 
             if (update.ClearDisplayBackgroundImage == true)

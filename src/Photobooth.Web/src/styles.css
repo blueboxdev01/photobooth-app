@@ -613,6 +613,33 @@ a.button, .btn.button {
 .stage .strip { height: min(72vh, 900px); width: auto; }
 .stage--done { gap: 16px; }
 
+/* The handover: the strip and the guest's QR side by side, since they are read
+   together -- "that is mine, and this is how I get it". */
+.handover {
+  display: flex; align-items: center; justify-content: center;
+  gap: clamp(20px, 5vw, 64px); flex-wrap: wrap;
+}
+.handover .strip { height: min(62vh, 780px); }
+.handover__note {
+  margin: 0; font-size: clamp(18px, 2.4vw, 28px); color: rgba(255, 255, 255, .78);
+  max-width: 14em; text-align: center;
+}
+.qr { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+/* White plate behind the code: guest backdrops can be any colour, and a QR on a
+   dark or busy ground is the classic reason a phone will not read it. */
+.qr img {
+  width: min(34vh, 380px); height: auto; display: block;
+  background: #fff; padding: 16px; border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .35);
+  /* Nearest-neighbour: a QR is a grid of hard squares and smoothing it on the
+     way up is what turns a scannable code into a fuzzy one. */
+  image-rendering: pixelated;
+}
+.qr__caption {
+  margin: 0; font-size: clamp(16px, 2vw, 24px); font-weight: 600;
+  color: rgba(255, 255, 255, .9); letter-spacing: .01em;
+}
+
 /* ---------- narrow screens ---------- */
 
 /* Laptop: the editor's third column is the first thing to give. */
@@ -679,6 +706,9 @@ a.button, .btn.button {
 @media (max-width: 640px) {
   .stage { padding: 16px; gap: 14px; }
   .stage h1, .stage--idle h1, .stage--done h1 { font-size: clamp(22px, 7vw, 44px); }
+  .handover { gap: 18px; }
+  .handover .strip { height: min(38vh, 420px); }
+  .qr img { width: min(46vw, 260px); }
   .stage__mirror { width: 100%; }
   .filmstrip .shot { width: min(28vw, 150px); }
   .attract { font-size: clamp(18px, 5vw, 30px); padding: 8px 18px; }

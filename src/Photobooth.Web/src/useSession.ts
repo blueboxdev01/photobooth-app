@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 import type { HubConnection } from '@microsoft/signalr'
-import type { CameraInfo, SessionSnapshot } from './types'
+import type { CameraInfo, DeliveryUpdate, SessionSnapshot } from './types'
 
 /**
  * Subscribes both windows to one authoritative session state.
@@ -12,6 +12,7 @@ import type { CameraInfo, SessionSnapshot } from './types'
  */
 export function useSession() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
+  const [delivery, setDelivery] = useState<DeliveryUpdate | null>(null)
   const [camera, setCamera] = useState<CameraInfo | null>(null)
   const [connected, setConnected] = useState(false)
   const connectionRef = useRef<HubConnection | null>(null)
@@ -24,6 +25,7 @@ export function useSession() {
       .build()
 
     connection.on('state', (s: SessionSnapshot) => setSnapshot(s))
+    connection.on('delivery', (d: DeliveryUpdate) => setDelivery(d))
     connection.onreconnected(() => setConnected(true))
     connection.onreconnecting(() => setConnected(false))
     connection.onclose(() => setConnected(false))
@@ -53,6 +55,10 @@ export function useSession() {
         const body = await r.json()
         if (!cancelled) {
           setCamera(body.camera)
+          // Delivery is polled as well as pushed: an upload can settle while no
+          // browser is connected, and the pending count on the console would
+          // otherwise sit stale until the next session.
+          setDelivery(body.delivery)
           if (!connectionRef.current) setSnapshot(body.session)
         }
       } catch {
@@ -67,7 +73,7 @@ export function useSession() {
     }
   }, [])
 
-  return { snapshot, camera, connected }
+  return { snapshot, delivery, camera, connected }
 }
 
 export async function command(name: string, body?: unknown) {

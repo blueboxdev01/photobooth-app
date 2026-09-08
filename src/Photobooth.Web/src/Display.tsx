@@ -1,5 +1,5 @@
 import { photoUrl } from './types'
-import type { SessionSnapshot, SessionState } from './types'
+import type { DeliveryUpdate, SessionSnapshot, SessionState } from './types'
 import { useCountdown, useSession } from './useSession'
 import { PosingMirror } from './PosingMirror'
 import { backdropStyle, useDisplayTheme } from './useDisplayTheme'
@@ -15,7 +15,7 @@ const MIRROR_STATES: SessionState[] = ['Idle', 'Countdown', 'Collecting', 'Timed
 
 /** The guest-facing screen. Fullscreen on the external monitor. */
 export function Display() {
-  const { snapshot } = useSession()
+  const { snapshot, delivery } = useSession()
   const backdrop = backdropStyle(useDisplayTheme())
 
   if (!snapshot) {
@@ -52,12 +52,14 @@ export function Display() {
     return (
       <div className="stage stage--done" style={backdrop}>
         <h1>All done</h1>
-        {snapshot.stripUrl ? (
-          <img className="strip" src={snapshot.stripUrl} alt="Your photo strip" />
-        ) : (
-          <Filmstrip snapshot={snapshot} />
-        )}
-        <p className="muted">Your QR code will appear here.</p>
+        <div className="handover">
+          {snapshot.stripUrl ? (
+            <img className="strip" src={snapshot.stripUrl} alt="Your photo strip" />
+          ) : (
+            <Filmstrip snapshot={snapshot} />
+          )}
+          <Handover snapshot={snapshot} delivery={delivery} />
+        </div>
       </div>
     )
   }
@@ -77,6 +79,49 @@ export function Display() {
       <Filmstrip snapshot={snapshot} />
     </div>
   )
+}
+
+/**
+ * How the guest takes their photos home.
+ *
+ * The delivery update names the session it belongs to, so this only ever shows a
+ * QR for the strip beside it -- an upload still draining from an earlier guest
+ * must never put someone else's code on the screen.
+ *
+ * When there is no link yet the strip is still shown, with an honest line about
+ * why. A booth with no signal has not failed the guest: their photos exist, and
+ * the operator can send the link on afterwards.
+ */
+function Handover({
+  snapshot,
+  delivery,
+}: {
+  snapshot: SessionSnapshot
+  delivery: DeliveryUpdate | null
+}) {
+  const mine =
+    delivery && snapshot.sessionFolder && delivery.sessionFolder === snapshot.sessionFolder
+      ? delivery
+      : null
+
+  if (!mine?.enabled) {
+    return <p className="handover__note">Ask us for your photos.</p>
+  }
+
+  if (mine.qrUrl) {
+    return (
+      <div className="qr">
+        <img src={mine.qrUrl} alt="QR code linking to your photos" />
+        <p className="qr__caption">Scan to keep your photos</p>
+      </div>
+    )
+  }
+
+  if (mine.state === 'Failed') {
+    return <p className="handover__note">Ask us for your photos — we have them safe.</p>
+  }
+
+  return <p className="handover__note">Getting your link ready…</p>
 }
 
 function Overlay({ snapshot }: { snapshot: SessionSnapshot }) {

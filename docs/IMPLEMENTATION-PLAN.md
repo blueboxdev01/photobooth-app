@@ -342,7 +342,11 @@ They run the checklist and send back a diagnostics bundle. In order: **BR-E1 + U
 **Verify:** you receive a bundle showing a complete 3-shot session producing 4 correct local files. Then fold the findings back in — expect to adjust M3's config values and possibly M4's slot geometry. Budget a second build and a second round; one pass rarely settles it.
 
 ### M7 — Google Drive delivery + QR (the primary output)
-Dedicated account and OAuth app configured per the auth section. `DrivePublisher`: create folder, set link permission, upload strip then raws. SQLite-backed upload queue with retry. QR on the display at session end.
+Dedicated account and OAuth app configured per the auth section. `DrivePublisher`: create folder, set link permission, upload strip then raws. Background upload queue with retry and backoff. QR on the display at session end.
+
+> **Built without SQLite.** The queue holds no state of its own: the work is every session whose `session.json` says it has not been published yet, which `SessionArchive.All()` already reads for `/api/sessions`. That removes a dependency, removes any chance of a database disagreeing with the folders on disk, makes the queue crash-safe with no recovery code, and lets a stuck session be fixed in a text editor. It costs a directory scan per retry pass, which at the ~500 sessions a 15 GB quota allows is nothing.
+
+> **Delivery is not a session state**, so `Uploading` and `ShowQr` were deleted from `SessionState` rather than wired up. As states they would have held a finished session open until the network came back — the opposite of "never block the guest" — and lost track of an upload the moment the next guest stepped in. The session still ends at `Done`; delivery is pushed separately and names the session it belongs to.
 **Verify:** run a session and scan the QR **from a phone on cellular** — confirm the folder holds exactly 4 files and that a second session's link shows different photos. Confirm the Drive folder and the local session folder hold identical files under the same name, and that `session.json` records the Drive URL. Then the failure paths: pull the network mid-upload and confirm the queue drains on reconnect; start a session fully offline and confirm it completes as "QR pending" **with the local archive fully intact**; re-publish that session afterwards from the operator screen; revoke the token and confirm the operator screen says so loudly.
 
 ### M8 — Frame upload + visual slot editor

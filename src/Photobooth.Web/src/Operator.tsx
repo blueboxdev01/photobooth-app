@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AppShell, Panel, RailSection } from './AppShell'
 import { photoUrl } from './types'
-import type { SessionSnapshot, SessionState } from './types'
+import type { DeliveryUpdate, SessionSnapshot, SessionState } from './types'
 import { command, reorder, useCountdown, useSession } from './useSession'
 
 const MOCK_MODES = [
@@ -25,7 +25,7 @@ const HEADLINE: Record<SessionState, string> = {
 }
 
 export function Operator() {
-  const { snapshot, camera, connected } = useSession()
+  const { snapshot, delivery, camera, connected } = useSession()
   const [mockResult, setMockResult] = useState<{ ok: boolean; text: string } | null>(null)
 
   if (!snapshot) {
@@ -108,6 +108,7 @@ export function Operator() {
     >
       {!connected && <p className="notice notice--warn">Reconnecting to the booth…</p>}
       {snapshot.message && <p className="notice">{snapshot.message}</p>}
+      <DeliveryNotice delivery={delivery} />
 
       <Stage snapshot={snapshot} />
 
@@ -137,6 +138,7 @@ export function Operator() {
               <dd><code>{snapshot.sessionFolder}</code></dd>
               <dt>Contents</dt>
               <dd>{snapshot.shotCount} raw photos, the strip, and session.json</dd>
+              <Delivery snapshot={snapshot} delivery={delivery} />
             </dl>
           </div>
         </Panel>
@@ -148,6 +150,74 @@ export function Operator() {
         </Panel>
       )}
     </AppShell>
+  )
+}
+
+/**
+ * Delivery trouble, at the top where the operator will see it.
+ *
+ * Only for the two things a person has to act on. A pending upload is normal and
+ * says so further down; a revoked sign-in or a full account stops every guest
+ * from here on, and failing quietly is how you find out at the end of the night.
+ */
+function DeliveryNotice({ delivery }: { delivery: DeliveryUpdate | null }) {
+  if (!delivery?.enabled) return null
+
+  if (!delivery.authorised) {
+    return (
+      <p className="notice notice--warn">
+        Not signed in to Google Drive — nothing is being uploaded. Open{' '}
+        <a href="/diagnostics">Setup</a> and press Re-authorise.
+      </p>
+    )
+  }
+
+  if (delivery.failed > 0) {
+    return (
+      <p className="notice notice--warn">
+        {delivery.failed} session{delivery.failed === 1 ? '' : 's'} could not be
+        uploaded{delivery.lastError ? `: ${delivery.lastError}` : '.'} The photos are
+        safe on disk and can be re-published from <a href="/diagnostics">Setup</a>.
+      </p>
+    )
+  }
+
+  return null
+}
+
+/** Where this guest's photos got to, as extra rows on the strip facts. */
+function Delivery({
+  snapshot,
+  delivery,
+}: {
+  snapshot: SessionSnapshot
+  delivery: DeliveryUpdate | null
+}) {
+  const mine =
+    delivery && delivery.sessionFolder === snapshot.sessionFolder ? delivery : null
+
+  if (!mine?.enabled) {
+    return (
+      <>
+        <dt>Delivery</dt>
+        <dd className="muted">Off — the photos stay on this machine.</dd>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <dt>Guest link</dt>
+      <dd>
+        {mine.url ? (
+          <a href={mine.url} target="_blank" rel="noreferrer">{mine.url}</a>
+        ) : mine.state === 'Failed' ? (
+          <span className="bad">Failed{mine.error ? ` — ${mine.error}` : ''}</span>
+        ) : (
+          <span className="muted">Uploading…</span>
+        )}
+      </dd>
+    </>
   )
 }
 

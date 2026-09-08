@@ -48,6 +48,16 @@ public sealed class BoothSettings
     /// <summary>Output size, which also decides portrait versus landscape.</summary>
     public string? CanvasPresetId { get; set; }
 
+    // --- delivery ---
+
+    /// <summary>
+    /// Whether finished sessions are uploaded to Google Drive.
+    ///
+    /// Only ever narrows what configuration allows: with no OAuth client
+    /// configured, as in the field-test build, there is nothing to turn on.
+    /// </summary>
+    public bool? DriveEnabled { get; set; }
+
     // --- guest display ---
 
     /// <summary>Backdrop colour for the guest screen, so a booth can match an event.</summary>
