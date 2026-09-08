@@ -42,15 +42,38 @@ jobs:
       - name: Test
         run: dotnet test --configuration Release --logger "console;verbosity=minimal"
 
+      # The tag is the version, so the two can never drift. They did: v0.8.0
+      # shipped reporting itself as 0.7.0, because the csproj held the number and
+      # nobody remembered to bump it. The field-test sheet asks the tester to
+      # quote that string, so a wrong one is worse than none.
+      - name: Version from the tag
+        shell: pwsh
+        run: |
+          $ref = $env:GITHUB_REF_NAME
+          if ($ref -match '^v(\d+\.\d+\.\d+)$') {
+            echo "BUILD_VERSION=$($Matches[1])" >> $env:GITHUB_ENV
+            Write-Host "Building as $($Matches[1])"
+          } else {
+            # A non-version tag such as phase-1 keeps whatever the csproj says.
+            echo "BUILD_VERSION=" >> $env:GITHUB_ENV
+            Write-Host "$ref is not a version tag; using the project's version."
+          }
+
       - name: Publish self-contained
-        run: >
-          dotnet publish src/Photobooth.Server
-          --configuration Release
-          --runtime win-x64
-          --self-contained true
-          -p:PublishSingleFile=true
-          -p:EnableCompressionInSingleFile=true
-          --output artifacts/publish
+        shell: pwsh
+        run: |
+          $args = @(
+            'publish', 'src/Photobooth.Server',
+            '--configuration', 'Release',
+            '--runtime', 'win-x64',
+            '--self-contained', 'true',
+            '-p:PublishSingleFile=true',
+            '-p:EnableCompressionInSingleFile=true',
+            '--output', 'artifacts/publish'
+          )
+          if ($env:BUILD_VERSION) { $args += "-p:Version=$env:BUILD_VERSION" }
+          dotnet @args
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A build that cannot run a mock session is useless to a field tester, and
       # "the folder exists" is not the same as "the folder has files in it" --
