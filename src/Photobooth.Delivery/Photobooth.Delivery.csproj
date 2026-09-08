@@ -12,6 +12,12 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
   </ItemGroup>
 
+  <!-- The DPAPI token store is an implementation detail, but it is the one place
+       a lost sign-in would hide, so it is worth testing directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Photobooth.Delivery.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

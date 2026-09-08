@@ -503,6 +503,141 @@ public sealed class UploadQueueTests : IDisposable
         Assert.NotNull(after.DriveFolderId);
     }
 
+    // --- the queue starts work at once ---------------------------------------
+
+    /// <summary>
+    /// The one that was costing a guest fourteen seconds. Enqueue used to write
+    /// Pending to disk and nothing else, leaving the loop asleep in its idle
+    /// delay -- so the booth composed a strip and then did nothing at all until
+    /// the poll came round. The QR took 17s to appear, of which about 4s was
+    /// actual work.
+    ///
+    /// Driven through the real hosted-service loop rather than RunOnceAsync, so
+    /// it is the loop's own waiting that is under test.
+    /// </summary>
+    [Fact]
+    public async Task A_finished_session_is_picked_up_without_waiting_for_the_poll()
+    {
+        var publisher = new FakePublisher();
+        var queue = Queue(publisher, new DriveOptions
+        {
+            Enabled = true,
+            // Far longer than the test will wait: if the wake-up does not work,
+            // this cannot pass by the poll coming round instead.
+            IdlePollSeconds = 600,
+            BaseBackoffSeconds = 10,
+            MaxBackoffSeconds = 300,
+            MaxAttempts = 3,
+        });
+
+        await queue.StartAsync(CancellationToken.None);
+        try
+        {
+            var record = queue.Enqueue(Archived());
+
+            var published = await WaitFor(
+                () => Reload(record.FolderName).UploadState == UploadStates.Uploaded);
+
+            Assert.True(published, "the session was still waiting for the idle poll");
+        }
+        finally
+        {
+            await queue.StopAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// And every session after the first, which is where this went wrong the
+    /// first time it was fixed: racing the wake-up against the idle delay with
+    /// WhenAny left the loser running, so each expired poll parked an abandoned
+    /// waiter on the semaphore that swallowed the next wake-up. Guest one was
+    /// instant and everybody after them waited fifteen seconds.
+    /// </summary>
+    [Fact]
+    public async Task Every_session_after_the_first_is_picked_up_at_once_too()
+    {
+        var publisher = new FakePublisher();
+        var queue = Queue(publisher, new DriveOptions
+        {
+            Enabled = true, IdlePollSeconds = 600,
+            BaseBackoffSeconds = 10, MaxBackoffSeconds = 300, MaxAttempts = 3,
+        });
+
+        await queue.StartAsync(CancellationToken.None);
+        try
+        {
+            var first = queue.Enqueue(Archived("aaa111"));
+            Assert.True(
+                await WaitFor(() => Reload(first.FolderName).UploadState == UploadStates.Uploaded),
+                $"the first session never published: enqueued as {first.UploadState}, "
+                + $"now {Reload(first.FolderName).UploadState}, "
+                + $"publisher saw {publisher.Calls.Count} call(s)");
+
+            // Let the idle poll actually expire. That is the precondition for the
+            // bug: an expired poll is what leaves an abandoned waiter behind, and
+            // a test where the poll never fires cannot see it.
+            _time.Advance(TimeSpan.FromSeconds(601));
+            await Task.Delay(150);
+
+            var second = queue.Enqueue(Archived("bbb222"));
+            Assert.True(
+                await WaitFor(() => Reload(second.FolderName).UploadState == UploadStates.Uploaded),
+                "the second session was still waiting for the idle poll");
+        }
+        finally
+        {
+            await queue.StopAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>Re-publishing by hand should not wait for the poll either.</summary>
+    [Fact]
+    public async Task Republishing_is_picked_up_without_waiting_for_the_poll()
+    {
+        var publisher = new FakePublisher();
+        var queue = Queue(publisher, new DriveOptions
+        {
+            Enabled = true, IdlePollSeconds = 600,
+            BaseBackoffSeconds = 10, MaxBackoffSeconds = 300, MaxAttempts = 3,
+        });
+
+        // Archived while delivery was off, so nothing is pending to begin with.
+        var off = Queue(new FakePublisher { Enabled = false });
+        var record = off.Enqueue(Archived());
+
+        await queue.StartAsync(CancellationToken.None);
+        try
+        {
+            queue.Republish(record.FolderName);
+
+            var published = await WaitFor(
+                () => Reload(record.FolderName).UploadState == UploadStates.Uploaded);
+
+            Assert.True(published, "the re-publish was still waiting for the idle poll");
+        }
+        finally
+        {
+            await queue.StopAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>Real time, because the loop being tested does its own waiting.</summary>
+    private static async Task<bool> WaitFor(Func<bool> done, int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (done())
+            {
+                return true;
+            }
+
+            await Task.Delay(25);
+        }
+
+        return false;
+    }
+
     // --- what the console shows ---------------------------------------------
 
     [Fact]

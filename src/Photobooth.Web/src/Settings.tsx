@@ -36,6 +36,8 @@ interface SettingsResponse {
     /** A Google OAuth client exists in this build at all. */
     configured: boolean
     account: string | null
+    /** The Drive folder session folders are filed inside. */
+    folderName: string
     status: {
       enabled: boolean
       authorised: boolean
@@ -419,7 +421,8 @@ function Delivery({
   reload: () => Promise<void>
   save: (patch: Record<string, unknown>, success: string) => Promise<boolean>
 }) {
-  const { configured, account, status } = data.delivery
+  const { configured, account, status, folderName } = data.delivery
+  const [folder, setFolder] = useState(folderName)
 
   const post = async (url: string, success: string) => {
     setBusy(true)
@@ -474,6 +477,24 @@ function Delivery({
               </button>
             )}
           </div>
+
+          <label>Drive folder
+            <input className="control" value={folder} spellCheck={false}
+                   onChange={(e) => setFolder(e.target.value)} />
+          </label>
+          <div className="controls">
+            <button className="btn" disabled={busy || folder.trim() === folderName}
+                    onClick={() => void save(
+                      { driveFolderName: folder.trim() }, 'Drive folder applied.')}>
+              Save folder
+            </button>
+          </div>
+          <p className="muted small">
+            Every session folder is filed inside this one, so the booth account&rsquo;s
+            Drive stays tidy. The app creates it — it has to be a folder the app
+            made, because it can only see its own files, so pointing it at a folder
+            you made by hand in Drive will not work.
+          </p>
 
           <dl className="facts">
             <dt>Uploading</dt>

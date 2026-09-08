@@ -143,10 +143,58 @@ public sealed class SessionArchive(
         return record;
     }
 
-    public void WriteRecord(string folder, SessionRecord record) =>
-        File.WriteAllText(
-            Path.Combine(folder, "session.json"),
-            JsonSerializer.Serialize(record, Json));
+    /// <summary>
+    /// Replace a session's record.
+    ///
+    /// Written to a temporary file and moved into place rather than written over
+    /// the top. Both screens poll the delivery status every few seconds, and that
+    /// reads every session.json -- so a plain overwrite races the readers: on
+    /// Windows the write fails with a sharing violation, which the upload queue
+    /// then mistakes for a failed upload and retries. Moving is also what stops a
+    /// reader seeing a half-written file.
+    /// </summary>
+    public void WriteRecord(string folder, SessionRecord record)
+    {
+        var path = Path.Combine(folder, "session.json");
+        var staging = path + ".tmp";
+
+        File.WriteAllText(staging, JsonSerializer.Serialize(record, Json));
+
+        // Windows will not replace a file another handle has open, however
+        // politely that handle shared it -- and a reader only holds it for
+        // microseconds, so the collision is worth waiting out rather than
+        // reporting. Virus scanners produce the same thing on the same file.
+        const int attempts = 20;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(staging, path, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (
+                (ex is IOException or UnauthorizedAccessException) && attempt < attempts)
+            {
+                Thread.Sleep(5);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Read a file that something else may be replacing at this moment.
+    ///
+    /// <c>FileShare.Delete</c> is the part that matters: without it a reader
+    /// blocks the move above, and the writer is the one that fails.
+    /// </summary>
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
 
     public string FolderFor(SessionRecord record) => Path.Combine(Root, record.FolderName);
 
@@ -170,7 +218,7 @@ public sealed class SessionArchive(
             try
             {
                 var record = JsonSerializer.Deserialize<SessionRecord>(
-                    File.ReadAllText(path), Json);
+                    ReadShared(path), Json);
                 if (record is not null)
                 {
                     records.Add(record);

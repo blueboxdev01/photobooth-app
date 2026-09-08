@@ -47,6 +47,11 @@ a guest their QR code and nothing else. Uploads run in the background and retry
 with a widening gap; a session that never uploaded can be published from Setup
 days later.
 
+Sessions are filed **one folder per guest, inside a single parent folder** the
+app creates — `Photobooth` by default, renameable in Setup. If they look loose,
+that is Drive's **Home** tab listing recent files flat; **My Drive** shows the
+folders.
+
 **The QR appears before the upload finishes.** The strip goes up first and the
 link is published the moment it lands, while the raw photos -- which are most of
 the ~25 MB -- are still going. Waiting for the whole session would routinely put

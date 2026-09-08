@@ -58,6 +58,13 @@ public sealed class BoothSettings
     /// </summary>
     public bool? DriveEnabled { get; set; }
 
+    /// <summary>
+    /// The Drive folder every session folder is filed inside. The app creates it
+    /// if it is not there; it must be one the app made, because the drive.file
+    /// scope cannot write into a folder someone created by hand.
+    /// </summary>
+    public string? DriveFolderName { get; set; }
+
     // --- guest display ---
 
     /// <summary>Backdrop colour for the guest screen, so a booth can match an event.</summary>

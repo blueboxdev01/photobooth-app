@@ -35,9 +35,28 @@ public sealed class DriveOptions
 
     /// <summary>
     /// Folder in the booth account's Drive that per-session folders are created
-    /// inside. Empty means the root of My Drive.
+    /// inside. The app finds it by name and creates it if it is not there.
+    ///
+    /// It has to be a folder <b>this app made</b>: the drive.file scope reaches
+    /// only files the app created, so a folder made by hand in the Drive web
+    /// interface cannot be written into and uploads fail with "File not found".
+    /// Empty puts every session folder loose in the root of My Drive, which one
+    /// event turns into a hundred folders strewn through it.
+    /// </summary>
+    public string ParentFolderName { get; set; } = "Photobooth";
+
+    /// <summary>
+    /// An explicit parent, bypassing the lookup by name. Same scope rule applies:
+    /// it must be a folder this app created, or writes into it will fail.
     /// </summary>
     public string? ParentFolderId { get; set; }
+
+    /// <summary>
+    /// How many raw photos are uploaded at once. Drive sustains about three
+    /// writes a second, so three keeps a session's tail short without going near
+    /// the rate limit.
+    /// </summary>
+    public int UploadConcurrency { get; set; } = 3;
 
     /// <summary>
     /// How long the queue waits before the first retry. Doubles each attempt,

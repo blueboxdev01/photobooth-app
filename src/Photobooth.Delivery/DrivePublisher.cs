@@ -23,9 +23,36 @@ public sealed class DrivePublisher(
 
     private readonly DriveOptions _options = options.Value;
 
+    /// <summary>
+    /// The parent folder's id, looked up once and kept. Resolving it per session
+    /// would add a round trip to every guest's critical path for an answer that
+    /// does not change.
+    /// </summary>
+    private string? _parentId;
+
+    private readonly SemaphoreSlim _parentLock = new(1, 1);
+
     public bool Enabled => _options.Enabled && auth.Configured;
 
     public bool Authorised => auth.Authorised;
+
+    /// <summary>
+    /// Drop the remembered parent folder, so the next session looks it up again.
+    /// Called when the operator renames it: otherwise sessions would keep going
+    /// into the old folder until the app was restarted.
+    /// </summary>
+    public void ForgetParentFolder()
+    {
+        _parentLock.Wait();
+        try
+        {
+            _parentId = null;
+        }
+        finally
+        {
+            _parentLock.Release();
+        }
+    }
 
     public async Task<PublishResult> PublishAsync(
         SessionRecord record,
@@ -71,11 +98,13 @@ public sealed class DrivePublisher(
 
             linkReady?.Invoke(folderId, url);
 
-            foreach (var photo in record.Photos.Where(p => !already.Contains(p)))
-            {
-                await UploadAsync(drive, folderId, Path.Combine(folder, photo),
-                    photo, cancellationToken);
-            }
+            // The raws go up together rather than one after another: they are
+            // the bulk of a session and doing them in sequence left the folder
+            // incomplete for three times longer than it needed to be.
+            await UploadAllAsync(
+                drive, folderId, folder,
+                [.. record.Photos.Where(p => !already.Contains(p))],
+                cancellationToken);
 
             logger.LogInformation(
                 "Published {Session} as {Count} files in {Url}.",
@@ -106,6 +135,109 @@ public sealed class DrivePublisher(
         }
     }
 
+    /// <summary>
+    /// Upload several files at once, bounded so a big strip count cannot spam
+    /// Drive past its rate limit.
+    /// </summary>
+    private async Task UploadAllAsync(
+        DriveService drive,
+        string folderId,
+        string folder,
+        IReadOnlyList<string> names,
+        CancellationToken cancellationToken)
+    {
+        var slots = new SemaphoreSlim(Math.Max(1, _options.UploadConcurrency));
+
+        var uploads = names.Select(async name =>
+        {
+            await slots.WaitAsync(cancellationToken);
+            try
+            {
+                await UploadAsync(
+                    drive, folderId, Path.Combine(folder, name), name, cancellationToken);
+            }
+            finally
+            {
+                slots.Release();
+            }
+        });
+
+        // WhenAll rather than a loop: one photo failing must not leave the others
+        // half-done and unreported -- the queue retries the session as a whole,
+        // and the already-there check keeps that from duplicating anything.
+        await Task.WhenAll(uploads);
+    }
+
+    /// <summary>
+    /// The folder every session folder is created inside, made by this app so the
+    /// drive.file scope can actually write to it. Looked up by name once, then
+    /// remembered.
+    /// </summary>
+    private async Task<string?> ParentFolderIdAsync(
+        DriveService drive, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(_options.ParentFolderId))
+        {
+            return _options.ParentFolderId;
+        }
+
+        if (string.IsNullOrWhiteSpace(_options.ParentFolderName))
+        {
+            return null;
+        }
+
+        if (_parentId is not null)
+        {
+            return _parentId;
+        }
+
+        await _parentLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_parentId is not null)
+            {
+                return _parentId;
+            }
+
+            // An apostrophe in the folder name would otherwise close the quoted
+            // string in the query and break the search -- "Ed's booth" is not an
+            // unreasonable thing to call it.
+            var name = _options.ParentFolderName.Replace("'", "\\'");
+            var search = drive.Files.List();
+
+            // drive.file means this only ever sees folders the app made, which is
+            // exactly the one we are looking for.
+            search.Q = $"mimeType = '{FolderMimeType}' and name = '{name}' "
+                       + "and trashed = false";
+            search.Fields = "files(id)";
+            search.PageSize = 1;
+
+            var found = await search.ExecuteAsync(cancellationToken);
+            if (found.Files.Count > 0)
+            {
+                return _parentId = found.Files[0].Id;
+            }
+
+            var created = drive.Files.Create(new Google.Apis.Drive.v3.Data.File
+            {
+                Name = _options.ParentFolderName,
+                MimeType = FolderMimeType,
+            });
+            created.Fields = "id";
+
+            var folder = await created.ExecuteAsync(cancellationToken);
+            logger.LogInformation(
+                "Created the {Name} folder in Drive to keep sessions together.",
+                _options.ParentFolderName);
+
+            return _parentId = folder.Id;
+        }
+        finally
+        {
+            _parentLock.Release();
+        }
+    }
+
     /// <summary>What is already in the folder, so a retry does not duplicate it.</summary>
     private static async Task<HashSet<string>> ExistingNamesAsync(
         DriveService drive, string folderId, CancellationToken cancellationToken)
@@ -122,15 +254,15 @@ public sealed class DrivePublisher(
     private async Task<string> CreateFolderAsync(
         DriveService drive, SessionRecord record, CancellationToken cancellationToken)
     {
+        var parent = await ParentFolderIdAsync(drive, cancellationToken);
+
         var metadata = new Google.Apis.Drive.v3.Data.File
         {
             // Same name as the folder on disk, so the two are trivially matched
             // up when a guest asks for their photos again a week later.
             Name = record.FolderName,
             MimeType = FolderMimeType,
-            Parents = string.IsNullOrWhiteSpace(_options.ParentFolderId)
-                ? null
-                : [_options.ParentFolderId],
+            Parents = parent is null ? null : [parent],
         };
 
         var request = drive.Files.Create(metadata);

@@ -42,6 +42,9 @@ public sealed class FakePublisher : IGalleryPublisher
     public PublishResult Default { get; set; } =
         PublishResult.Success("folder-id", "https://drive.example/folder-id");
 
+    /// <summary>Held open so a test can observe an upload still in flight.</summary>
+    public TaskCompletionSource? Gate { get; set; }
+
     public Task<PublishResult> PublishAsync(
         SessionRecord record,
         string folder,
@@ -61,6 +64,11 @@ public sealed class FakePublisher : IGalleryPublisher
             throw ex;
         }
 
+        if (Gate is not null)
+        {
+            return WaitThenAnswer(record);
+        }
+
         var result = _scripted.Count > 0 ? _scripted.Dequeue() : Default;
 
         // A real publisher gives each session its own folder; mirroring that here
@@ -73,5 +81,20 @@ public sealed class FakePublisher : IGalleryPublisher
         }
 
         return Task.FromResult(result);
+    }
+
+    private async Task<PublishResult> WaitThenAnswer(SessionRecord record)
+    {
+        await Gate!.Task;
+        var result = _scripted.Count > 0 ? _scripted.Dequeue() : Default;
+
+        if (result.Ok && result.FolderId == "folder-id")
+        {
+            result = PublishResult.Success(
+                $"drive-{record.FolderName}",
+                $"https://drive.example/drive-{record.FolderName}");
+        }
+
+        return result;
     }
 }

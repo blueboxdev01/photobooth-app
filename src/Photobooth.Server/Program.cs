@@ -106,6 +106,11 @@ builder.Services.PostConfigure<DriveOptions>(o =>
     {
         o.Enabled = enabled;
     }
+
+    if (!string.IsNullOrWhiteSpace(settingsStore.Current.DriveFolderName))
+    {
+        o.ParentFolderName = settingsStore.Current.DriveFolderName!;
+    }
 });
 builder.Services.PostConfigure<SessionSettings>(o =>
 {

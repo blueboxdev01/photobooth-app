@@ -20,7 +20,8 @@ public sealed record SettingsUpdate(
     string? CanvasPresetId,
     string? DisplayBackgroundColor,
     bool? ClearDisplayBackgroundImage,
-    bool? DriveEnabled);
+    bool? DriveEnabled,
+    string? DriveFolderName);
 
 /// <summary>
 /// Everything an operator sets up per event: where the camera's photos arrive,
@@ -39,6 +40,7 @@ public static class SettingsEndpoints
             SessionArchive archive,
             FileTemplateProvider templates,
             IOptions<SessionSettings> session,
+            IOptions<DriveOptions> drive,
             DriveAuth driveAuth,
             UploadQueue uploads) =>
         {
@@ -90,6 +92,7 @@ public static class SettingsEndpoints
                     // nothing when pressed.
                     configured = driveAuth.Configured,
                     account = driveAuth.Account,
+                    folderName = drive.Value.ParentFolderName,
                     status = uploads.Status(),
                 },
             });
@@ -103,7 +106,8 @@ public static class SettingsEndpoints
             FileTemplateProvider templates,
             IOptions<ArchiveOptions> archiveOptions,
             IOptions<SessionSettings> session,
-            IOptions<DriveOptions> driveOptions) =>
+            IOptions<DriveOptions> driveOptions,
+            DrivePublisher publisher) =>
         {
             // Staged on a copy and validated in full before anything is applied.
             // Mutating the live settings as we went meant a rejected request could
@@ -176,6 +180,27 @@ public static class SettingsEndpoints
                 settings.DriveEnabled = driveEnabled;
             }
 
+            if (update.DriveFolderName is { } driveFolder)
+            {
+                var trimmed = driveFolder.Trim();
+
+                // Drive itself allows almost anything, but a name with a slash or
+                // a control character in it reads as a path and confuses everyone
+                // looking at the folder later.
+                if (trimmed.Length is 0 or > 100
+                    || trimmed.IndexOfAny(['/', '\\']) >= 0
+                    || trimmed.Any(char.IsControl))
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = "The Drive folder name must be 1-100 characters "
+                                + "and cannot contain slashes.",
+                    });
+                }
+
+                settings.DriveFolderName = trimmed;
+            }
+
             if (update.DisplayBackgroundColor is { } colour)
             {
                 if (!LooksLikeHexColour(colour))
@@ -226,6 +251,12 @@ public static class SettingsEndpoints
                 // Immediate, like the folders: nobody should have to restart the
                 // booth to stop it uploading.
                 driveOptions.Value.Enabled = appliedDrive;
+            }
+
+            if (!string.IsNullOrWhiteSpace(settings.DriveFolderName))
+            {
+                driveOptions.Value.ParentFolderName = settings.DriveFolderName!;
+                publisher.ForgetParentFolder();
             }
 
             if (update.ClearDisplayBackgroundImage == true)

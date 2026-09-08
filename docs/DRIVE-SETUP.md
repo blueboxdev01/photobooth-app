@@ -101,17 +101,29 @@ DPAPI** — readable only by your Windows user on that machine, and useless if t
 file is copied off. Copy `data/` to a new laptop and you will simply be asked to
 sign in again.
 
-## Optional: put sessions inside a folder
+## Where the sessions end up
 
-By default each session folder is created in the root of My Drive. To keep them
-together, make a folder in Drive, open it, and copy the id out of the address bar
-(`.../folders/THIS-PART`), then add:
+Every session gets **its own folder**, and all of those live inside **one parent
+folder** — `Photobooth` by default, which the app creates the first time it
+uploads. Rename it in **Setup → Guest delivery**.
 
-```json
-"ParentFolderId": "THIS-PART"
+```
+My Drive
+└─ Photobooth
+   ├─ 2026-09-08_1059_oyivfw
+   │    strip.jpg, photo-1.jpg, photo-2.jpg, photo-3.jpg
+   └─ 2026-09-08_1104_gihnpn
+        strip.jpg, photo-1.jpg, photo-2.jpg, photo-3.jpg
 ```
 
-next to `ClientId` in the same file.
+> **Do not make that folder yourself and paste its id in.** The `drive.file`
+> scope reaches only files the app created, so a folder made by hand in the Drive
+> web interface cannot be written into — uploads fail with "File not found". Let
+> the app create it. (This is why the setting is a *name*, not an id.)
+
+**If the photos look loose, check which view you are in.** Drive opens on a
+**Home** tab that lists recent files flat, whatever folder they are in. Click
+**My Drive** in the sidebar to see the actual folders.
 
 ## Checking it works
 

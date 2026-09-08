@@ -41,6 +41,15 @@ public sealed class UploadQueue : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _nextAttempt = [];
 
+    /// <summary>
+    /// Poked when work arrives, so a finished session is picked up now rather
+    /// than whenever the idle poll next comes round. Without it the booth
+    /// composes a strip and then sits doing nothing for up to
+    /// <see cref="DriveOptions.IdlePollSeconds"/> -- which measured as fourteen
+    /// of the seventeen seconds a guest spent waiting for their QR code.
+    /// </summary>
+    private readonly SemaphoreSlim _wake = new(0, 1);
+
     private readonly Lock _sync = new();
     private string? _lastError;
     private DateTimeOffset? _lastSuccessUtc;
@@ -105,6 +114,7 @@ public sealed class UploadQueue : BackgroundService
         };
 
         _archive.WriteRecord(_archive.FolderFor(pending), pending);
+        Wake();
         return pending;
     }
 
@@ -134,7 +144,25 @@ public sealed class UploadQueue : BackgroundService
 
         _archive.WriteRecord(_archive.FolderFor(pending), pending);
         _logger.LogInformation("{Folder} queued for re-publishing.", folderName);
+        Wake();
         return pending;
+    }
+
+    /// <summary>
+    /// Ask the loop to run a pass now. Safe to call repeatedly: the semaphore is
+    /// capped at one, so ten sessions finishing together mean one extra pass
+    /// rather than ten queued wake-ups.
+    /// </summary>
+    private void Wake()
+    {
+        try
+        {
+            _wake.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // A pass is already pending, which is all this needs to guarantee.
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -156,10 +184,20 @@ public sealed class UploadQueue : BackgroundService
                 _logger.LogError(ex, "The upload queue pass failed.");
             }
 
+            // Whichever comes first: something to do, or the idle poll coming
+            // round. The poll is the safety net for retries whose backoff has
+            // expired; new work does not wait for it.
+            //
+            // The timeout overload rather than racing two tasks with WhenAny:
+            // WhenAny leaves the loser running, so every poll that expired left
+            // an abandoned WaitAsync queued on the semaphore, and it -- not the
+            // next iteration -- collected the following Release. The first
+            // session was picked up instantly and every one after it waited out
+            // the poll anyway, which is exactly what the logs showed.
             try
             {
-                await Task.Delay(
-                    TimeSpan.FromSeconds(_options.IdlePollSeconds), _time, stoppingToken);
+                await _wake.WaitAsync(
+                    TimeSpan.FromSeconds(_options.IdlePollSeconds), stoppingToken);
             }
             catch (OperationCanceledException)
             {
