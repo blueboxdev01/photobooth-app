@@ -88,9 +88,29 @@ export function PosingMirror({ slotAspect = 4 / 3 }: { slotAspect?: number }) {
   return (
     <div className="mirror">
       <video ref={videoRef} autoPlay playsInline muted />
-      <div className="mirror__guide" style={{ aspectRatio: String(slotAspect) }}>
-        <span>strip crop &middot; uncalibrated</span>
+
+      {/*
+        The framing guide. Everything outside the box is dimmed, so what survives
+        onto the strip is obvious at a glance from across a booth -- brackets
+        rather than a body outline, because a photobooth is mostly groups and an
+        outline of one person tells four people the wrong thing.
+
+        The box is the *slot* shape, not the camera's. The R50 shoots 3:2 and the
+        slots are usually squarer, so whoever fills the camera frame loses their
+        shoulders.
+      */}
+      <div className="guide" style={{ aspectRatio: String(slotAspect) }}>
+        <span className="guide__corner guide__corner--tl" />
+        <span className="guide__corner guide__corner--tr" />
+        <span className="guide__corner guide__corner--bl" />
+        <span className="guide__corner guide__corner--br" />
+
+        {/* Head room: guests stand too close and lose the top of their heads. */}
+        <span className="guide__headroom" />
+        <span className="guide__centre" />
       </div>
+
+      <p className="guide__note">Stay inside the corners</p>
     </div>
   )
 }

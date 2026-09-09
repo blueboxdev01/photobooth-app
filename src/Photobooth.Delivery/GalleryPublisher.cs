@@ -60,10 +60,11 @@ public sealed record PublishResult(
     string? FolderId = null,
     string? Url = null,
     PublishFailure Failure = PublishFailure.None,
-    string? Error = null)
+    string? Error = null,
+    string? Qr = null)
 {
-    public static PublishResult Success(string folderId, string url) =>
-        new(true, folderId, url);
+    public static PublishResult Success(string folderId, string url, string? qr = null) =>
+        new(true, folderId, url, Qr: qr);
 
     public static PublishResult Fail(PublishFailure failure, string error) =>
         new(false, Failure: failure, Error: error);

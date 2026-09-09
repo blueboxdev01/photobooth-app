@@ -638,6 +638,47 @@ public sealed class UploadQueueTests : IDisposable
         return false;
     }
 
+    // --- the QR that outlives the session ------------------------------------
+
+    /// <summary>
+    /// A guest who comes back next week having lost their link should be findable
+    /// from the folder on disk alone, without the booth running.
+    /// </summary>
+    [Fact]
+    public async Task A_published_session_keeps_a_qr_beside_its_photos()
+    {
+        var publisher = new FakePublisher();
+        var queue = Queue(publisher);
+        var record = queue.Enqueue(Archived());
+
+        await queue.RunOnceAsync();
+
+        var after = Reload(record.FolderName);
+        Assert.Equal("qr.png", after.Qr);
+
+        var file = Path.Combine(_archive.FolderFor(after), "qr.png");
+        Assert.True(File.Exists(file), "no qr.png was written next to the photos");
+        Assert.True(new FileInfo(file).Length > 100);
+    }
+
+    /// <summary>
+    /// With delivery off there is no link, so there is nothing for a QR to point
+    /// at and none is written -- an image leading nowhere is worse than none.
+    /// </summary>
+    [Fact]
+    public async Task No_qr_is_written_when_nothing_is_published()
+    {
+        var publisher = new FakePublisher { Enabled = false };
+        var queue = Queue(publisher);
+        var record = queue.Enqueue(Archived());
+
+        await queue.RunOnceAsync();
+
+        var after = Reload(record.FolderName);
+        Assert.Null(after.Qr);
+        Assert.False(File.Exists(Path.Combine(_archive.FolderFor(after), "qr.png")));
+    }
+
     // --- what the console shows ---------------------------------------------
 
     [Fact]

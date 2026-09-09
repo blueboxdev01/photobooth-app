@@ -156,29 +156,86 @@ public sealed class SessionEngine : IDisposable
     /// <summary>Discard the most recent shot and take that pose again.</summary>
     public SessionSnapshot RetakeLast()
     {
+        if (_state is SessionState.Idle or SessionState.Done)
+        {
+            return Snapshot;
+        }
+
+        // "The last shot" means the one taken most recently, whatever position it
+        // has been dragged to. Which slot that is depends on the arrangement, so
+        // it is looked up rather than assumed to be the end.
+        int slot;
+        lock (_sync)
+        {
+            if (_photos.Count == 0)
+            {
+                slot = -1;
+            }
+            else
+            {
+                slot = _order.IndexOf(_photos.Count - 1);
+            }
+        }
+
+        return slot < 0 ? Snapshot : Retake(slot).Snapshot;
+    }
+
+    /// <summary>
+    /// Discard one shot and take that pose again, leaving every other shot where
+    /// it is.
+    ///
+    /// <paramref name="slot"/> is a position in the strip as the operator is
+    /// looking at it, not a capture number -- the console shows slots, and asking
+    /// it to translate would mean two places had to agree about the arrangement.
+    ///
+    /// The replacement comes back into the same slot, so a guest who blinked in
+    /// photo two gets photo two redone rather than the strip resequenced.
+    /// </summary>
+    public RetakeResult Retake(int slot)
+    {
         SessionSnapshot snapshot;
         lock (_sync)
         {
             if (_state is SessionState.Idle or SessionState.Done)
             {
-                return Build();
+                return new RetakeResult(
+                    false, $"There is no session to retake a shot in ({_state}).", Build());
             }
 
-            if (_photos.Count > 0)
+            if (slot < 0 || slot >= _order.Count)
             {
-                var dropped = _photos[^1];
-                var captured = _photos.Count - 1;
-
-                // Remember where it sat in the strip before dropping it, so a
-                // rearrangement survives the retake.
-                var slot = _order.IndexOf(captured);
-                _retakeSlot = slot >= 0 ? slot : null;
-                _order.Remove(captured);
-
-                _photos.RemoveAt(captured);
-                _logger.LogInformation(
-                    "Retaking; dropped {File} from slot {Slot}.", dropped.FileName, slot + 1);
+                return new RetakeResult(
+                    false,
+                    _order.Count == 0
+                        ? "No shots have been taken yet."
+                        : $"Pick a shot between 1 and {_order.Count}.",
+                    Build());
             }
+
+            var captured = _order[slot];
+            var dropped = _photos[captured];
+
+            _order.RemoveAt(slot);
+            _photos.RemoveAt(captured);
+
+            // _order holds indices into _photos, so removing anything other than
+            // the newest capture leaves every higher index pointing one photo too
+            // far along. Retaking the last shot never needed this; retaking the
+            // middle of a strip does, and getting it wrong silently rearranges
+            // everyone else's photos.
+            for (var i = 0; i < _order.Count; i++)
+            {
+                if (_order[i] > captured)
+                {
+                    _order[i]--;
+                }
+            }
+
+            // Where the replacement goes when it arrives; SubmitPhoto reads this.
+            _retakeSlot = slot;
+
+            _logger.LogInformation(
+                "Retaking slot {Slot}; dropped {File}.", slot + 1, dropped.FileName);
 
             _message = null;
             BeginCountdown();
@@ -186,7 +243,7 @@ public sealed class SessionEngine : IDisposable
         }
 
         Publish(snapshot);
-        return snapshot;
+        return new RetakeResult(true, null, snapshot);
     }
 
     /// <summary>
@@ -460,7 +517,8 @@ public sealed class SessionEngine : IDisposable
         _startedUtc,
         _message,
         _stripUrl,
-        _sessionFolder);
+        _sessionFolder,
+        _retakeSlot);
 
     private void Publish(SessionSnapshot snapshot) => Changed?.Invoke(this, snapshot);
 

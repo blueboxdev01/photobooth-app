@@ -15,7 +15,7 @@ const MIRROR_STATES: SessionState[] = ['Idle', 'Countdown', 'Collecting', 'Timed
 
 /** The guest-facing screen. Fullscreen on the external monitor. */
 export function Display() {
-  const { snapshot, delivery } = useSession()
+  const { snapshot, delivery, slotAspect } = useSession()
   const backdrop = backdropStyle(useDisplayTheme())
 
   if (!snapshot) {
@@ -72,7 +72,7 @@ export function Display() {
         a black flash and a second of nothing exactly as the countdown starts.
       */}
       <div className="stage__mirror">
-        <PosingMirror />
+        <PosingMirror slotAspect={slotAspect} />
         <Overlay snapshot={snapshot} />
       </div>
       <Caption snapshot={snapshot} />
@@ -137,7 +137,13 @@ function Overlay({ snapshot }: { snapshot: SessionSnapshot }) {
   }
 
   if (snapshot.state === 'Collecting') {
-    return <div className="hold">Hold it…</div>
+    return (
+      <div className="hold">
+        {snapshot.retakingSlot !== null
+          ? `One more of photo ${snapshot.retakingSlot + 1}`
+          : 'Hold it…'}
+      </div>
+    )
   }
 
   if (snapshot.state === 'Idle') {
@@ -152,6 +158,14 @@ function Caption({ snapshot }: { snapshot: SessionSnapshot }) {
     return (
       <p className="shotcount">
         {snapshot.shotCount} photos, then your QR code
+      </p>
+    )
+  }
+
+  if (snapshot.retakingSlot !== null) {
+    return (
+      <p className="shotcount">
+        Taking photo {snapshot.retakingSlot + 1} again
       </p>
     )
   }

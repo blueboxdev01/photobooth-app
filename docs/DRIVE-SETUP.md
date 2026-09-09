@@ -116,15 +116,19 @@ uploads. Rename it in **Setup → Guest delivery**.
 My Drive
 └─ Photobooth
    ├─ 2026-09-08_1059_oyivfw
-   │    strip.jpg, photo-1.jpg, photo-2.jpg, photo-3.jpg
+   │    strip.jpg, photo-1.jpg, photo-2.jpg, photo-3.jpg, qr.png
    └─ 2026-09-08_1104_gihnpn
-        strip.jpg, photo-1.jpg, photo-2.jpg, photo-3.jpg
+        strip.jpg, photo-1.jpg, photo-2.jpg, photo-3.jpg, qr.png
 ```
 
 > **Do not make that folder yourself and paste its id in.** The `drive.file`
 > scope reaches only files the app created, so a folder made by hand in the Drive
 > web interface cannot be written into — uploads fail with "File not found". Let
 > the app create it. (This is why the setting is a *name*, not an id.)
+
+`qr.png` is that session's own code, kept with the photos so a guest who lost
+their link can be shown it again later. It is written to the folder on your
+machine as well, so it works with the booth switched off.
 
 **If the photos look loose, check which view you are in.** Drive opens on a
 **Home** tab that lists recent files flat, whatever folder they are in. Click

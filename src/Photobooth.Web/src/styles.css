@@ -310,6 +310,13 @@ a:hover { text-decoration: underline; }
 .frame__shot {
   font-weight: 700; color: var(--ink-soft);
 }
+/* Deliberately full width and plainly labelled: at a booth this gets pressed
+   while talking to a guest, so it should not need aiming at. */
+.frame__retake {
+  border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
+  font-size: 12px; padding: 7px 8px;
+}
+.frame__retake:hover:not(:disabled) { color: var(--warn); border-top-color: var(--warn); }
 
 .result { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
 .result__strip {
@@ -550,7 +557,13 @@ a.button, .btn.button {
 .stage h1 { font-size: 34px; margin: 0; font-weight: 800; letter-spacing: -.03em; }
 .stage--idle h1, .stage--done h1 { font-size: 44px; }
 .stage .muted { color: #9aa3ad; }
-.stage__mirror { position: relative; width: min(78vw, 1000px); }
+/* Sized from the viewport height rather than a fixed pixel cap: on a 1080p guest
+   monitor the old min(78vw, 1000px) filled about half the screen, and the mirror
+   is the thing guests are actually looking at. */
+.stage__mirror {
+  position: relative;
+  width: min(94vw, calc(66vh * 16 / 9));
+}
 
 .mirror {
   position: relative; width: 100%; aspect-ratio: 16 / 9;
@@ -573,14 +586,43 @@ a.button, .btn.button {
 
 /* Shows the strip slot's crop, not the camera frame: a 3:2 sensor into a 4:3
    slot loses the sides, and with them anyone's shoulders. */
-.mirror__guide {
+/* ---------- framing guide ----------
+   Corner brackets marking the strip crop, with everything outside dimmed. The
+   dimming is done with a huge spread shadow rather than four overlay divs, so
+   the shape stays in one place and cannot drift out of alignment. */
+.guide {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  height: 88%; border: 2px dashed #ffd23f; border-radius: 6px;
-  display: flex; align-items: flex-start; justify-content: center; pointer-events: none;
+  height: 86%; pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .48);
+  border-radius: 4px;
 }
-.mirror__guide span {
-  background: #ffd23f; color: #1a1400; font-size: 11px;
-  padding: 1px 7px; border-radius: 0 0 4px 4px;
+.guide__corner {
+  position: absolute; width: 42px; height: 42px;
+  border: 4px solid #ffd23f;
+}
+.guide__corner--tl { top: -2px; left: -2px; border-right: 0; border-bottom: 0; border-radius: 6px 0 0 0; }
+.guide__corner--tr { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-radius: 0 6px 0 0; }
+.guide__corner--bl { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-radius: 0 0 0 6px; }
+.guide__corner--br { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-radius: 0 0 6px 0; }
+
+/* Guests stand too close and lose the top of their heads; this is where the
+   tallest one should sit. */
+.guide__headroom {
+  position: absolute; left: 8%; right: 8%; top: 14%;
+  border-top: 2px dashed rgba(255, 210, 63, .5);
+}
+.guide__centre {
+  position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(rgba(255, 210, 63, .75), rgba(255, 210, 63, .75)) center / 2px 100% no-repeat,
+    linear-gradient(rgba(255, 210, 63, .75), rgba(255, 210, 63, .75)) center / 100% 2px no-repeat;
+}
+.guide__note {
+  position: absolute; left: 0; right: 0; bottom: 12px; margin: 0;
+  text-align: center; font-size: clamp(13px, 1.6vw, 20px); font-weight: 600;
+  color: rgba(255, 255, 255, .85); text-shadow: 0 2px 10px rgba(0, 0, 0, .8);
+  pointer-events: none;
 }
 
 .countdown {
@@ -710,6 +752,7 @@ a.button, .btn.button {
   .handover .strip { height: min(38vh, 420px); }
   .qr img { width: min(46vw, 260px); }
   .stage__mirror { width: 100%; }
+  .guide__corner { width: 26px; height: 26px; border-width: 3px; }
   .filmstrip .shot { width: min(28vw, 150px); }
   .attract { font-size: clamp(18px, 5vw, 30px); padding: 8px 18px; }
 }

@@ -24,7 +24,7 @@ See [docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md) for the full plan
 | M8 Frame upload + slot editor | done — `/templates` |
 | Operator console | done — dashboard, light/dark, layout and folder settings |
 
-144 tests passing. Nothing has yet been verified against a real camera.
+181 tests passing. Nothing has yet been verified against a real camera.
 
 Each session writes `data/sessions/<name>/` holding the strip, the raw photos,
 and a `session.json` describing them. The Drive folder receives a copy of exactly
@@ -52,6 +52,11 @@ app creates — `Photobooth` by default, renameable in Setup. If they look loose
 that is Drive's **Home** tab listing recent files flat; **My Drive** shows the
 folders.
 
+A **`qr.png`** is written into each session's folder — on disk and in Drive —
+once there is a link for it to point at. A guest who comes back next week having
+lost their link can be found from the folder alone, with no need for the booth to
+be running.
+
 **The QR appears before the upload finishes.** The strip goes up first and the
 link is published the moment it lands, while the raw photos -- which are most of
 the ~25 MB -- are still going. Waiting for the whole session would routinely put
@@ -66,6 +71,19 @@ actually on disk, and a stuck session can be unstuck in Notepad.
 Failures are told apart, because retrying does not fix all of them equally: a
 dropped network is retried, a revoked sign-in or a full account is not, and both
 say so on the operator screen rather than stalling quietly.
+
+## Retaking one shot
+
+Any single shot can be redone from **review**, before you press Accept: press
+**Retake this one** on its thumbnail and the booth goes back to waiting for
+exactly that pose. Every other shot keeps its photo and its position, and the
+replacement drops into the same slot.
+
+Both screens name the pose being redone, so a guest reshooting photo two is not
+told they are on photo four.
+
+**Retake** in the rail still means the shot taken *most recently*, whatever
+position it has been dragged to — the two are deliberately separate.
 
 ## Rearranging the shots
 

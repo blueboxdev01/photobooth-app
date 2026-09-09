@@ -40,7 +40,13 @@ public sealed record SessionRecord(
     string? DriveFolderId = null,
     string? DriveUrl = null,
     int UploadAttempts = 0,
-    string? UploadError = null);
+    string? UploadError = null,
+    /// <summary>
+    /// The QR image, once there is a link for it to point at. Kept beside the
+    /// photos so a guest who lost their link can be shown the code again days
+    /// later, without the booth having to be running.
+    /// </summary>
+    string? Qr = null);
 
 /// <summary>
 /// Writes each session to its own folder on disk.

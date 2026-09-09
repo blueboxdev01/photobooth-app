@@ -14,6 +14,9 @@ export function useSession() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
   const [delivery, setDelivery] = useState<DeliveryUpdate | null>(null)
   const [camera, setCamera] = useState<CameraInfo | null>(null)
+  // The shape of one photo on the strip, for the guest screen's framing guide.
+  // Polled with the rest of the state: it only changes when the template does.
+  const [slotAspect, setSlotAspect] = useState(4 / 3)
   const [connected, setConnected] = useState(false)
   const connectionRef = useRef<HubConnection | null>(null)
 
@@ -59,6 +62,9 @@ export function useSession() {
           // browser is connected, and the pending count on the console would
           // otherwise sit stale until the next session.
           setDelivery(body.delivery)
+          if (typeof body.slotAspect === 'number' && body.slotAspect > 0) {
+            setSlotAspect(body.slotAspect)
+          }
           if (!connectionRef.current) setSnapshot(body.session)
         }
       } catch {
@@ -73,7 +79,7 @@ export function useSession() {
     }
   }, [])
 
-  return { snapshot, delivery, camera, connected }
+  return { snapshot, delivery, camera, connected, slotAspect }
 }
 
 export async function command(name: string, body?: unknown) {

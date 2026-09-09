@@ -98,19 +98,31 @@ public sealed class DrivePublisher(
 
             linkReady?.Invoke(folderId, url);
 
+            // The QR can only be made once the link exists, so it is written
+            // here rather than when the session was archived. It goes on disk
+            // first: that copy is the one that helps a guest who comes back next
+            // week having lost their link, and it must not depend on the upload
+            // of it succeeding.
+            var qr = WriteQr(folder, url, logger);
+
             // The raws go up together rather than one after another: they are
             // the bulk of a session and doing them in sequence left the folder
             // incomplete for three times longer than it needed to be.
-            await UploadAllAsync(
-                drive, folderId, folder,
-                [.. record.Photos.Where(p => !already.Contains(p))],
-                cancellationToken);
+            var pending = record.Photos.Where(p => !already.Contains(p)).ToList();
+            if (qr is not null && !already.Contains(qr))
+            {
+                pending.Add(qr);
+            }
+
+            await UploadAllAsync(drive, folderId, folder, pending, cancellationToken);
 
             logger.LogInformation(
                 "Published {Session} as {Count} files in {Url}.",
-                record.FolderName, record.Photos.Count + 1, url);
+                record.FolderName,
+                record.Photos.Count + 1 + (qr is null ? 0 : 1),
+                url);
 
-            return PublishResult.Success(folderId, url);
+            return PublishResult.Success(folderId, url, qr);
         }
         catch (TokenResponseException ex)
         {
@@ -132,6 +144,27 @@ public sealed class DrivePublisher(
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return PublishResult.Fail(PublishFailure.Transient, "The upload timed out.");
+        }
+    }
+
+    /// <summary>
+    /// Write the guest's QR into their session folder, returning its file name.
+    ///
+    /// Never fatal: a session whose photos are safe and uploaded must not be
+    /// reported as failed because a convenience image could not be written.
+    /// </summary>
+    internal static string? WriteQr(string folder, string url, ILogger logger)
+    {
+        const string name = "qr.png";
+        try
+        {
+            System.IO.File.WriteAllBytes(Path.Combine(folder, name), QrRenderer.Png(url));
+            return name;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not write {Name} into {Folder}.", name, folder);
+            return null;
         }
     }
 
@@ -287,10 +320,16 @@ public sealed class DrivePublisher(
     {
         await using var stream = System.IO.File.OpenRead(path);
 
+        // The QR is a PNG among JPEGs, and Drive believes what it is told --
+        // mislabel it and the guest gets a file their phone will not preview.
+        var mime = name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            ? "image/png"
+            : "image/jpeg";
+
         var request = drive.Files.Create(
             new Google.Apis.Drive.v3.Data.File { Name = name, Parents = [folderId] },
             stream,
-            "image/jpeg");
+            mime);
         request.Fields = "id";
 
         var progress = await request.UploadAsync(cancellationToken);

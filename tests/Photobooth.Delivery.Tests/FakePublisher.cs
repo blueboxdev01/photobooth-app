@@ -28,6 +28,11 @@ public sealed class FakePublisher : IGalleryPublisher
     /// </summary>
     public bool AnnouncesLink { get; set; } = true;
 
+    /// <summary>Write a qr.png into the session folder, as the real one does.</summary>
+    public bool WritesQr { get; set; } = true;
+
+    private string? _qr;
+
     /// <summary>Used once each, in order; then <see cref="Default"/> takes over.</summary>
     public FakePublisher Script(params PublishResult[] results)
     {
@@ -56,7 +61,14 @@ public sealed class FakePublisher : IGalleryPublisher
         if (AnnouncesLink)
         {
             var id = record.DriveFolderId ?? $"drive-{record.FolderName}";
-            linkReady?.Invoke(id, $"https://drive.example/{id}");
+            var url = $"https://drive.example/{id}";
+            linkReady?.Invoke(id, url);
+
+            if (WritesQr)
+            {
+                File.WriteAllBytes(Path.Combine(folder, "qr.png"), QrRenderer.Png(url));
+                _qr = "qr.png";
+            }
         }
 
         if (Throws is { } ex)
@@ -77,7 +89,8 @@ public sealed class FakePublisher : IGalleryPublisher
         {
             result = PublishResult.Success(
                 $"drive-{record.FolderName}",
-                $"https://drive.example/drive-{record.FolderName}");
+                $"https://drive.example/drive-{record.FolderName}",
+                _qr);
         }
 
         return Task.FromResult(result);

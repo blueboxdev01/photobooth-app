@@ -152,8 +152,21 @@ app.MapTemplateEndpoints();
 app.MapSettingsEndpoints();
 
 app.MapGet("/api/state", (
-    WatchFolderCamera camera, SessionEngine engine, SessionCoordinator coordinator) =>
-    Results.Ok(new
+    WatchFolderCamera camera,
+    SessionEngine engine,
+    SessionCoordinator coordinator,
+    FileTemplateProvider templates) =>
+{
+    // The shape of one photo on the strip, so the guest screen can draw a
+    // framing guide that matches the template actually in use rather than the
+    // 4:3 it assumed for its first three milestones.
+    var template = templates.Current;
+    var slot = template.Slots.Count > 0 ? template.Slots[0] : null;
+    var slotAspect = slot is null
+        ? 4d / 3d
+        : slot.W * template.Canvas.Width / (slot.H * template.Canvas.Height);
+
+    return Results.Ok(new
     {
         camera = new
         {
@@ -163,8 +176,10 @@ app.MapGet("/api/state", (
         },
         session = engine.Snapshot,
         delivery = coordinator.CurrentDelivery(),
+        slotAspect,
         build = new { version = DiagnosticsService.Version },
-    }));
+    });
+});
 
 // --- delivery ---
 
@@ -232,6 +247,16 @@ app.MapGet("/api/diagnostics/bundle", (DiagnosticsService d, IConfiguration conf
 
 app.MapPost("/api/session/arm", (SessionCoordinator c) => Results.Ok(c.Arm()));
 app.MapPost("/api/session/retake", (SessionEngine e) => Results.Ok(e.RetakeLast()));
+
+// Retake one pose out of the middle of a strip, leaving the rest where they are.
+// The slot is 1-based here because that is what the console shows the operator.
+app.MapPost("/api/session/retake/{slot:int}", (int slot, SessionEngine e) =>
+{
+    var result = e.Retake(slot - 1);
+    return result.Ok
+        ? Results.Ok(result.Snapshot)
+        : Results.BadRequest(new { error = result.Error, snapshot = result.Snapshot });
+});
 app.MapPost("/api/session/resume", (SessionEngine e) => Results.Ok(e.Resume()));
 // The shots, rearranged. Positions are expressed in the order the console is
 // currently showing, so a drag translates straight into this without the client

@@ -1,6 +1,6 @@
-using Photobooth.Imaging;
+using Photobooth.Delivery;
 
-namespace Photobooth.Imaging.Tests;
+namespace Photobooth.Delivery.Tests;
 
 public class QrRendererTests
 {

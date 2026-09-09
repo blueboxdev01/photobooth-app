@@ -1,6 +1,6 @@
 using QRCoder;
 
-namespace Photobooth.Imaging;
+namespace Photobooth.Delivery;
 
 /// <summary>
 /// Turns a session's link into a QR code the guest screen shows.

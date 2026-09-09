@@ -295,6 +295,7 @@ public sealed class UploadQueue : BackgroundService
                 DriveUrl = result.Url,
                 UploadAttempts = attempts,
                 UploadError = null,
+                Qr = result.Qr ?? record.Qr,
             };
 
             _archive.WriteRecord(folder, done);

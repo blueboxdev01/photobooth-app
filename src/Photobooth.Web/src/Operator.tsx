@@ -274,6 +274,16 @@ function Filmstrip({ snapshot }: { snapshot: SessionSnapshot }) {
 
   const taken = snapshot.photos.length
   const canReorder = snapshot.state === 'ReviewShots' && taken > 1
+  const canRetake = snapshot.state === 'ReviewShots'
+
+  /** Reshoot one pose, leaving the rest of the strip alone. */
+  const retake = async (slot: number) => {
+    const r = await fetch(`/api/session/retake/${slot + 1}`, { method: 'POST' })
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}))
+      setError(body.error ?? `HTTP ${r.status}`)
+    }
+  }
 
   /** Lift the shot at `from` out and drop it in at `to`, as a whole permutation. */
   const move = async (from: number, to: number) => {
@@ -293,6 +303,13 @@ function Filmstrip({ snapshot }: { snapshot: SessionSnapshot }) {
       {canReorder && (
         <p className="hint">
           Drag a shot, or use the arrows, to change where it lands on the strip.
+          <strong> Retake</strong> reshoots just that pose and puts it back in the
+          same place.
+        </p>
+      )}
+      {snapshot.retakingSlot !== null && (
+        <p className="notice">
+          Retaking photo {snapshot.retakingSlot + 1} — the others are kept.
         </p>
       )}
       {error && <p className="hint hint--bad">{error}</p>}
@@ -346,6 +363,13 @@ function Filmstrip({ snapshot }: { snapshot: SessionSnapshot }) {
                           title={`Move shot ${shot} later`}
                           onClick={() => void move(i, i + 1)}>›</button>
                 </div>
+              )}
+
+              {canRetake && (
+                <button className="btn btn--block frame__retake"
+                        onClick={() => void retake(i)}>
+                  Retake this one
+                </button>
               )}
 
               <figcaption>
