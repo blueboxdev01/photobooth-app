@@ -149,6 +149,7 @@ jobs:
           # telling them to go and find the setup doc on GitHub is a bad handover.
           Copy-Item docs/FIELD-TEST.md artifacts/publish/ -ErrorAction SilentlyContinue
           Copy-Item docs/DRIVE-SETUP.md artifacts/publish/ -ErrorAction SilentlyContinue
+          Copy-Item docs/QA-CHECKLIST.md artifacts/publish/ -ErrorAction SilentlyContinue
           Copy-Item appsettings.Local.example.json artifacts/publish/ -ErrorAction SilentlyContinue
           Compress-Archive -Path artifacts/publish/* -DestinationPath "artifacts/$name.zip"
           echo "ASSET=artifacts/$name.zip" >> $env:GITHUB_ENV

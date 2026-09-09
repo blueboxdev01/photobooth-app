@@ -144,6 +144,13 @@ deliberately adversarial — it writes slowly in chunks and can reproduce a stal
 file, a duplicate name, and a transfer that stalls — so ingest is exercised
 before real hardware exists.
 
+## Before an event
+
+**[docs/QA-CHECKLIST.md](docs/QA-CHECKLIST.md)** — half a day, on the machine and
+camera you will actually use. It starts with the three checks that could change
+your plans (does the remote work while tethered, does the camera stay powered,
+does a press become a strip) and ends in a go/no-go.
+
 ## Field testing
 
 See **[docs/FIELD-TEST.md](docs/FIELD-TEST.md)**. The short version: the build
