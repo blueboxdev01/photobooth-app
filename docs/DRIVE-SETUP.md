@@ -152,6 +152,7 @@ fails at the venue.
 | What you see | What it means |
 |---|---|
 | **Access blocked: … has not completed the Google verification process** (403 `access_denied`), at sign-in | The consent screen is still in *Testing*. Go to **Audience → Publish app** so it reads *In production*, then try again. Adding yourself as a test user also gets past this screen, but leaves you with the seven-day token expiry above |
+| **Your account has been disabled** | Google has suspended the account itself. **Re-authorising will not help** — the OAuth client lived in a Cloud project owned by that account and dies with it, so this needs a new account *and* a new client. See [If the booth account is disabled](#if-the-booth-account-is-disabled) |
 | *Not signed in — nothing is being uploaded* | No token, or Google revoked it. Press **Re-authorise**. If this comes back every week, the consent screen is still in *Testing* |
 | *The booth's Google account is out of storage* | The 15 GB is full. Not retried, because retrying cannot fix it. Clear space or upgrade |
 | Sessions sitting in *Waiting* | No network. They retry on their own with a widening gap and go when the connection returns |
@@ -161,6 +162,37 @@ fails at the venue.
 disk before an upload is ever attempted, and the record of what happened lives in
 that same folder as `session.json`. A session that never uploaded can be
 published later from Setup, days after the event.
+
+## If the booth account is disabled
+
+It happens, and it happened here: a Gmail account created purely for a booth was
+suspended as possibly bot-created and used alongside other accounts.
+
+**Nothing is lost.** Every photo from every session is on the booth machine, in
+the output folder, written before any upload was attempted. That is the whole
+reason the local archive comes first.
+
+What to do, in order:
+
+1. **Turn uploading off** — Setup → Guest delivery. The booth carries on
+   completely: capture, review, compositing and the local archive need no Google
+   at all, and the guest screen goes back to saying to ask for the photos. This
+   also clears the failed-upload banner from the operator console.
+2. **Download your data** from the Google notice, while the account is still in
+   its grace period.
+3. **Appeal**, if you think it was a mistake.
+
+Two things to know before rushing to a replacement:
+
+- **QR codes already handed out are dead.** They point into a Drive nobody can
+  reach. Anyone who asks can still be given their photos from the output folder.
+- **A new account needs a new OAuth client**, not just a re-authorise. Work
+  through this document again from step 1.
+
+> **Choose the replacement account carefully.** A fresh Gmail created for the
+> purpose is exactly the pattern that got flagged. An appeal on the original, or
+> an established account or Google Workspace, is a good deal more durable than
+> making another throwaway from the same machine.
 
 ## Privacy worth deciding once
 
