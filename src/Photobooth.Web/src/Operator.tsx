@@ -25,7 +25,7 @@ const HEADLINE: Record<SessionState, string> = {
 }
 
 export function Operator() {
-  const { snapshot, delivery, camera, connected } = useSession()
+  const { snapshot, delivery, camera, connected, outputFolder } = useSession()
   const [mockResult, setMockResult] = useState<{ ok: boolean; text: string } | null>(null)
 
   if (!snapshot) {
@@ -135,7 +135,13 @@ export function Operator() {
             <img className="result__strip" src={snapshot.stripUrl} alt="Composed strip" />
             <dl className="facts">
               <dt>Saved to</dt>
-              <dd><code>{snapshot.sessionFolder}</code></dd>
+              <dd>
+                {/* The full path, not just the folder name. "Saved to
+                    2026-09-13_2102_eylvz8" tells you nothing about where. */}
+                <code className="path">
+                  {outputFolder ? `${outputFolder}\${snapshot.sessionFolder}` : snapshot.sessionFolder}
+                </code>
+              </dd>
               <dt>Contents</dt>
               <dd>{snapshot.shotCount} raw photos, the strip, and session.json</dd>
               <Delivery snapshot={snapshot} delivery={delivery} />

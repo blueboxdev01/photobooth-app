@@ -155,7 +155,8 @@ app.MapGet("/api/state", (
     WatchFolderCamera camera,
     SessionEngine engine,
     SessionCoordinator coordinator,
-    FileTemplateProvider templates) =>
+    FileTemplateProvider templates,
+    SessionArchive archive) =>
 {
     // The shape of one photo on the strip, so the guest screen can draw a
     // framing guide that matches the template actually in use rather than the
@@ -177,6 +178,12 @@ app.MapGet("/api/state", (
         session = engine.Snapshot,
         delivery = coordinator.CurrentDelivery(),
         slotAspect,
+
+        // Where finished sessions are written. The console showed only a folder
+        // *name* after a session, which is no help in finding it -- and the
+        // default sits beside the exe, so "the photos did not save" is the
+        // reasonable conclusion when they saved somewhere nobody looked.
+        outputFolder = archive.Root,
         build = new { version = DiagnosticsService.Version },
     });
 });

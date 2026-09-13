@@ -14,6 +14,9 @@ export function useSession() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
   const [delivery, setDelivery] = useState<DeliveryUpdate | null>(null)
   const [camera, setCamera] = useState<CameraInfo | null>(null)
+  // Where finished sessions land, so the console can say where rather than
+  // naming a folder the operator then has to go hunting for.
+  const [outputFolder, setOutputFolder] = useState<string | null>(null)
   // The shape of one photo on the strip, for the guest screen's framing guide.
   // Polled with the rest of the state: it only changes when the template does.
   const [slotAspect, setSlotAspect] = useState(4 / 3)
@@ -65,6 +68,7 @@ export function useSession() {
           if (typeof body.slotAspect === 'number' && body.slotAspect > 0) {
             setSlotAspect(body.slotAspect)
           }
+          if (typeof body.outputFolder === 'string') setOutputFolder(body.outputFolder)
           if (!connectionRef.current) setSnapshot(body.session)
         }
       } catch {
@@ -79,7 +83,7 @@ export function useSession() {
     }
   }, [])
 
-  return { snapshot, delivery, camera, connected, slotAspect }
+  return { snapshot, delivery, camera, connected, slotAspect, outputFolder }
 }
 
 export async function command(name: string, body?: unknown) {
