@@ -133,6 +133,118 @@ public sealed class StripCompositorTests : IDisposable
         Assert.InRange(kept, 0.88f, 0.90f);   // ~89% of the frame width survives
     }
 
+    /// <summary>
+    /// A fine checkerboard shrunk into a slot must come out grey.
+    ///
+    /// <para>
+    /// This is the test that was missing. Every other test here asserts geometry
+    /// -- size, DPI, slot placement, a golden image -- and all of them passed
+    /// happily while photos were being downscaled with nearest-neighbour
+    /// sampling, which threw away about eighty-nine pixels in ninety and made
+    /// every strip look soft beside the originals it was built from.
+    /// </para>
+    ///
+    /// <para>
+    /// The source is a one-pixel checkerboard reduced exactly tenfold. Filter it
+    /// properly and equal amounts of black and white average into flat mid-grey.
+    /// Point-sample it and every tap lands on the same parity of the checker, so
+    /// the slot comes out <b>solid black</b> -- far outside the band asserted
+    /// below.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_fine_pattern_shrunk_into_a_slot_is_averaged_not_point_sampled()
+    {
+        // A small synthetic template rather than the shipped one. The claim is
+        // about the resampler, not about any particular layout, and keeping the
+        // canvas tiny keeps the source that feeds it tiny too -- a tenfold
+        // reduction of a real 2x6 slot would mean generating 23 megapixels of
+        // checkerboard for every run.
+        var template = new StripTemplate(
+            "checker", new TemplateCanvas(200, 150), [new TemplateSlot(0.1, 0.1, 0.8, 0.8)]);
+
+        var (sx, sy, sw, sh) = template.Slots[0].ToPixels(template.Canvas);
+
+        // Exactly ten source pixels per output pixel, at the slot's own aspect so
+        // CoverCrop takes nothing off and the ratio stays exact. An even ratio
+        // makes nearest-neighbour deterministic rather than moire, which is what
+        // lets the assertion below be a tight one.
+        var checker = Checkerboard(sw * 10, sh * 10);
+        var photos = Enumerable.Repeat(checker, template.Slots.Count).ToList();
+
+        var path = Path.Combine(_output, "checker-strip.jpg");
+        _compositor.Compose(template, photos, TemplateFolder, path);
+
+        using var strip = SKBitmap.Decode(path);
+        var (mean, deviation) = Statistics(strip, sx, sy, sw, sh);
+
+        // The claim that catches point sampling. Averaged, this lands near 128;
+        // point-sampled it is 0. The band is wide on purpose -- the exact value
+        // depends on whether the resampler averages in sRGB or linear light, and
+        // that is not what this test is about.
+        Assert.True(mean is > 60 and < 210,
+            $"slot averaged {mean:F1}; a filtered tenfold reduction of a "
+            + "black-and-white checkerboard should be mid-grey, not an extreme. "
+            + "A value near 0 or 255 means every sample hit one phase of the "
+            + "pattern -- nearest-neighbour sampling.");
+
+        // And it must be *flat*. This one guards the other failure mode: a
+        // half-filtered reduction that averages out correctly overall while
+        // showing moire banding across the slot.
+        Assert.True(deviation < 12,
+            $"slot varies by {deviation:F1} levels; a reduced checkerboard "
+            + "should be uniform, so this is moire from undersampling.");
+    }
+
+    /// <summary>A one-pixel black and white checkerboard, written as PNG.</summary>
+    private string Checkerboard(int width, int height)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                bitmap.SetPixel(x, y, ((x + y) & 1) == 0 ? SKColors.Black : SKColors.White);
+            }
+        }
+
+        // PNG, not JPEG: a one-pixel checkerboard is the worst case for JPEG and
+        // the source has to be exact for the assertion to mean anything.
+        var path = Path.Combine(_output, $"checker-{width}x{height}.png");
+        using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
+        using var file = File.Create(path);
+        data.SaveTo(file);
+        return path;
+    }
+
+    /// <summary>
+    /// Mean and standard deviation of the grey level inside a slot, inset from
+    /// its edges so JPEG ringing at the boundary does not pollute the figures.
+    /// </summary>
+    private static (double Mean, double Deviation) Statistics(
+        SKBitmap bitmap, int x, int y, int w, int h)
+    {
+        var insetX = x + (w / 6);
+        var insetY = y + (h / 6);
+        var right = x + w - (w / 6);
+        var bottom = y + h - (h / 6);
+
+        var values = new List<double>();
+        for (var py = insetY; py < bottom; py++)
+        {
+            for (var px = insetX; px < right; px++)
+            {
+                var p = bitmap.GetPixel(px, py);
+                values.Add((p.Red + p.Green + p.Blue) / 3.0);
+            }
+        }
+
+        var mean = values.Average();
+        var variance = values.Sum(v => (v - mean) * (v - mean)) / values.Count;
+        return (mean, Math.Sqrt(variance));
+    }
+
     [Fact]
     public void The_strip_matches_the_golden_image()
     {

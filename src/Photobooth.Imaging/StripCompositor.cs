@@ -11,6 +11,36 @@ namespace Photobooth.Imaging;
 public sealed class StripCompositor(ILogger<StripCompositor> logger)
 {
     /// <summary>
+    /// How photos and art are resampled into the canvas.
+    ///
+    /// <para>
+    /// Not optional, and not a default worth accepting. A 6000x4000 frame landing
+    /// in a 560x420 slot is close to a <b>tenfold reduction</b>, and Skia's
+    /// default sampling is nearest-neighbour: it keeps roughly one source pixel
+    /// in ninety and averages nothing at all. That is what made every strip look
+    /// soft and faintly crunchy beside the very photos it was built from.
+    /// </para>
+    ///
+    /// <para>
+    /// Mipmapping is what makes a reduction this large correct. It pre-filters
+    /// the source in halving steps so every source pixel contributes to the
+    /// result instead of most being thrown away, and linear filtering blends
+    /// between those steps. At 1:1 it uses the full-size level, so art that
+    /// already matches the canvas is copied untouched.
+    /// </para>
+    ///
+    /// <para>
+    /// Worth knowing if this ever reads as wrong again: <c>SKPaint.IsAntialias</c>
+    /// does <b>not</b> control this. It affects geometry edge coverage, not image
+    /// resampling, which is exactly why the old code looked like it was handling
+    /// quality while it was not. <c>SKPaint.FilterQuality</c>, which did control
+    /// it, was removed in SkiaSharp 4.
+    /// </para>
+    /// </summary>
+    private static readonly SKSamplingOptions HighQuality =
+        new(SKFilterMode.Linear, SKMipmapMode.Linear);
+
+    /// <summary>
     /// Composites <paramref name="photoPaths"/> into the template and writes a JPEG.
     /// </summary>
     /// <param name="templateFolder">
@@ -21,7 +51,7 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         IReadOnlyList<string> photoPaths,
         string templateFolder,
         string outputPath,
-        int jpegQuality = 92)
+        int jpegQuality = 95)
     {
         if (photoPaths.Count != template.Slots.Count)
         {
@@ -94,7 +124,7 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
             : new SKRect(0, 0, bitmap.Width, bitmap.Height);
 
         using var paint = new SKPaint { IsAntialias = true };
-        canvas.DrawBitmap(bitmap, source, target, paint);
+        canvas.DrawBitmap(bitmap, source, target, HighQuality, paint);
     }
 
     /// <summary>
@@ -153,7 +183,7 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
             overlay.Width, overlay.Height, template.Canvas.Width / (float)template.Canvas.Height);
 
         using var paint = new SKPaint { IsAntialias = true };
-        canvas.DrawBitmap(overlay, source, full, paint);
+        canvas.DrawBitmap(overlay, source, full, HighQuality, paint);
     }
 
     private static SKColor ParseColour(string value) =>
