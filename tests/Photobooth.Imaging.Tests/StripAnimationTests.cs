@@ -231,6 +231,83 @@ public sealed class StripAnimationTests : IDisposable
         Assert.True(gif.Frames.RootFrame.Metadata.GetGifMetadata().FrameDelay > 0);
     }
 
+    /// <summary>
+    /// A JPEG of a given size, with enough detail that the encoder cannot
+    /// collapse it. <b>JPEG specifically</b>: scaling on the way out of the
+    /// decoder is a property of its DCT blocks, and a PNG would come back at
+    /// full size and quietly fail the claim being made here.
+    /// </summary>
+    private string Photo(int width, int height)
+    {
+        using var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(SKColors.White);
+            using var paint = new SKPaint { Color = SKColors.DarkSlateGray };
+            for (var y = 0; y < height; y += 16)
+            {
+                canvas.DrawRect(0, y, width, 8, paint);
+            }
+        }
+
+        var path = Path.Combine(_work, $"photo-{width}x{height}.jpg");
+        using var data = bitmap.Encode(SKEncodedImageFormat.Jpeg, 92);
+        using var file = File.Create(path);
+        data.SaveTo(file);
+        return path;
+    }
+
+    // --- what gets decoded ----------------------------------------------------
+
+    /// <summary>
+    /// The animation must not unpack the camera’s full resolution for a slot a
+    /// few hundred pixels wide.
+    ///
+    /// <para>
+    /// It used to, once per frame, so a four-shot session did sixteen
+    /// full-resolution decodes and took five and a half seconds -- long enough
+    /// to stall the countdown going out to the screens. This pins the scaled
+    /// decode that replaced it: smaller than the source, but still with room to
+    /// spare above what it will be drawn at, so the resampler has detail to
+    /// average rather than exactly enough pixels and no more.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_photo_is_decoded_no_larger_than_it_will_be_drawn()
+    {
+        // 2400x1800, standing in for a camera frame.
+        var big = Photo(2400, 1800);
+
+        using var full = StripCompositor.DecodeOne(big, 0);
+        using var scaled = StripCompositor.DecodeOne(big, 300);
+
+        Assert.NotNull(full);
+        Assert.NotNull(scaled);
+
+        Assert.Equal(2400, full!.Width);
+
+        Assert.True(scaled!.Width < full.Width,
+            $"asked for 300px and got the whole {scaled.Width}px source back");
+
+        // Never below what it is drawn at, or the fix would have traded the
+        // slowness for the softness we spent a release removing.
+        Assert.True(scaled.Width >= 300,
+            $"decoded to {scaled.Width}px for a 300px slot, which is too little to "
+            + "downscale from cleanly");
+    }
+
+    /// <summary>A source already smaller than the slot is left alone.</summary>
+    [Fact]
+    public void A_small_photo_is_not_scaled_up_on_the_way_in()
+    {
+        var small = Photo(200, 150);
+
+        using var decoded = StripCompositor.DecodeOne(small, 400);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(200, decoded!.Width);
+    }
+
     // --- shrinking ------------------------------------------------------------
 
     [Theory]

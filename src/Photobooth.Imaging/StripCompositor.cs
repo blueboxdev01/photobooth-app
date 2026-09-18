@@ -70,20 +70,20 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         string outputPath,
         int jpegQuality = 95)
     {
-        using var surface = Render(template, photoPaths, templateFolder, SKAlphaType.Premul);
-        using var image = surface.Snapshot();
-        using var data = image.Encode(SKEncodedImageFormat.Jpeg, jpegQuality);
+        // Full resolution: this is the keepsake and the thing that gets printed,
+        // so the slot gets every pixel the camera gave it.
+        var photos = Decode(photoPaths, longestEdgeNeeded: 0);
+        using var art = LoadArt(template, templateFolder, longestEdgeNeeded: 0);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        using (var file = File.Create(outputPath))
+        try
         {
-            data.SaveTo(file);
+            using var surface = Render(template, photos, art, SKAlphaType.Premul);
+            Write(surface, template, outputPath, jpegQuality);
         }
-
-        // Skia does not write JPEG density, and a strip that prints at the wrong
-        // physical size is the single most likely printing complaint. Patch the
-        // JFIF header so 600x1800 really means 2x6 inches at 300 DPI.
-        JpegDensity.Stamp(outputPath, template.Canvas.Dpi);
+        finally
+        {
+            Dispose(photos);
+        }
 
         logger.LogInformation(
             "Composed {Output} ({Width}x{Height} at {Dpi} DPI, {Slots} photos, art {Art})",
@@ -130,17 +130,38 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
 
         var frames = new List<SKBitmap>(photoPaths.Count);
 
+        // Decoded once, here, and reused for every frame.
+        //
+        // This used to decode inside the frame loop, which meant n frames x n
+        // slots = n-squared decodes of whatever the camera produced. On a
+        // 6000x4000 Canon file a four-shot session did sixteen full-resolution
+        // JPEG decodes and took five and a half seconds -- long enough to stall
+        // the countdown pushes going out to the screens.
+        //
+        // And decoded small. A slot in a 1000px animation is a few hundred
+        // pixels wide, so there is nothing to gain from unpacking twenty-four
+        // megapixels to fill it. JPEG scales natively on the way out of the
+        // decoder, which is far cheaper than doing it afterwards.
+        var biggestSlot = scaled.Slots
+            .Select(slot => slot.ToPixels(scaled.Canvas))
+            .Select(px => Math.Max(px.W, px.H))
+            .DefaultIfEmpty(settings.LongestEdge)
+            .Max();
+
+        var photos = Decode(photoPaths, biggestSlot);
+        using var art = LoadArt(scaled, templateFolder, settings.LongestEdge);
+
         try
         {
             for (var frame = 0; frame < photoPaths.Count; frame++)
             {
-                var rotated = new string[photoPaths.Count];
+                var rotated = new SKBitmap?[photoPaths.Count];
                 for (var slot = 0; slot < photoPaths.Count; slot++)
                 {
-                    rotated[slot] = photoPaths[(slot + frame) % photoPaths.Count];
+                    rotated[slot] = photos[(slot + frame) % photoPaths.Count];
                 }
 
-                using var surface = Render(scaled, rotated, templateFolder, SKAlphaType.Opaque);
+                using var surface = Render(scaled, rotated, art, SKAlphaType.Opaque);
                 using var image = surface.Snapshot();
 
                 // Read into a bitmap of a colour type we have named, rather than
@@ -170,6 +191,8 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
             {
                 frame.Dispose();
             }
+
+            Dispose(photos);
         }
 
         logger.LogInformation(
@@ -209,18 +232,18 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
     /// <param name="photoPaths">One per slot, in slot order.</param>
     private SKSurface Render(
         StripTemplate template,
-        IReadOnlyList<string> photoPaths,
-        string templateFolder,
+        IReadOnlyList<SKBitmap?> photos,
+        SKBitmap? art,
         SKAlphaType alphaType)
     {
-        if (photoPaths.Count != template.Slots.Count)
+        if (photos.Count != template.Slots.Count)
         {
             // A mismatch means the session and the template disagree about how many
             // photos there are, which should be impossible now that the template
             // decides the shot count -- so fail loudly rather than half-fill a strip.
             throw new ArgumentException(
                 $"Template '{template.Name}' has {template.Slots.Count} slots but " +
-                $"{photoPaths.Count} photos were supplied.", nameof(photoPaths));
+                $"{photos.Count} photos were supplied.", nameof(photos));
         }
 
         var canvasInfo = new SKImageInfo(
@@ -234,33 +257,34 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         // goes over them and shows them through its transparent windows.
         if (template.Art == ArtLayer.Behind)
         {
-            DrawArt(canvas, template, templateFolder);
+            DrawArt(canvas, template, art);
         }
 
         for (var i = 0; i < template.Slots.Count; i++)
         {
-            DrawSlot(canvas, template, template.Slots[i], photoPaths[i]);
+            DrawSlot(canvas, template, template.Slots[i], photos[i]);
         }
 
         if (template.Art == ArtLayer.InFront)
         {
-            DrawArt(canvas, template, templateFolder);
+            DrawArt(canvas, template, art);
         }
 
         return surface;
     }
 
-    private void DrawSlot(SKCanvas canvas, StripTemplate template, TemplateSlot slot, string photoPath)
+    private static void DrawSlot(
+        SKCanvas canvas, StripTemplate template, TemplateSlot slot, SKBitmap? bitmap)
     {
-        var (x, y, w, h) = slot.ToPixels(template.Canvas);
-        var target = new SKRect(x, y, x + w, y + h);
-
-        using var bitmap = SKBitmap.Decode(photoPath);
+        // Null when that photo could not be decoded. The slot is left as
+        // background rather than failing the whole strip for one bad file.
         if (bitmap is null)
         {
-            logger.LogWarning("Could not decode {Photo}; leaving its slot empty.", photoPath);
             return;
         }
+
+        var (x, y, w, h) = slot.ToPixels(template.Canvas);
+        var target = new SKRect(x, y, x + w, y + h);
 
         var source = slot.Fit == SlotFit.Cover
             ? CoverCrop(bitmap.Width, bitmap.Height, w / (float)h)
@@ -295,24 +319,10 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
         return new SKRect(0, topInset, width, height - topInset);
     }
 
-    private void DrawArt(SKCanvas canvas, StripTemplate template, string templateFolder)
+    private static void DrawArt(SKCanvas canvas, StripTemplate template, SKBitmap? overlay)
     {
-        if (string.IsNullOrWhiteSpace(template.Overlay))
-        {
-            return;
-        }
-
-        var path = Path.Combine(templateFolder, template.Overlay);
-        if (!File.Exists(path))
-        {
-            logger.LogWarning("Art {Art} not found; the strip will have none.", path);
-            return;
-        }
-
-        using var overlay = SKBitmap.Decode(path);
         if (overlay is null)
         {
-            logger.LogWarning("Art {Art} could not be decoded.", path);
             return;
         }
 
@@ -327,6 +337,139 @@ public sealed class StripCompositor(ILogger<StripCompositor> logger)
 
         using var paint = new SKPaint { IsAntialias = true };
         canvas.DrawBitmap(overlay, source, full, HighQuality, paint);
+    }
+
+    /// <summary>Encode the finished canvas and stamp its physical size.</summary>
+    private static void Write(
+        SKSurface surface, StripTemplate template, string outputPath, int jpegQuality)
+    {
+        using var image = surface.Snapshot();
+        using var data = image.Encode(SKEncodedImageFormat.Jpeg, jpegQuality);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        using (var file = File.Create(outputPath))
+        {
+            data.SaveTo(file);
+        }
+
+        // Skia does not write JPEG density, and a strip that prints at the wrong
+        // physical size is the single most likely printing complaint. Patch the
+        // JFIF header so 600x1800 really means 2x6 inches at 300 DPI.
+        JpegDensity.Stamp(outputPath, template.Canvas.Dpi);
+    }
+
+    private List<SKBitmap?> Decode(IReadOnlyList<string> paths, int longestEdgeNeeded)
+    {
+        var decoded = new List<SKBitmap?>(paths.Count);
+
+        foreach (var path in paths)
+        {
+            var bitmap = DecodeOne(path, longestEdgeNeeded);
+            if (bitmap is null)
+            {
+                logger.LogWarning("Could not decode {Photo}; leaving its slot empty.", path);
+            }
+
+            decoded.Add(bitmap);
+        }
+
+        return decoded;
+    }
+
+    /// <summary>
+    /// One photo, decoded no larger than it needs to be.
+    ///
+    /// <para>
+    /// A JPEG decoder can scale on the way out, and doing so costs a fraction of
+    /// unpacking every pixel and throwing most of them away. That matters here:
+    /// a slot in the animation is a few hundred pixels wide and the camera hands
+    /// us twenty-four megapixels.
+    /// </para>
+    /// </summary>
+    /// <param name="longestEdgeNeeded">
+    /// The largest the image will ever be drawn, or 0 to decode it whole -- which
+    /// is what the printed strip asks for. Twice this is requested, so the
+    /// resampler still has detail to average rather than being handed exactly the
+    /// pixels it needs and no spare.
+    /// </param>
+    internal static SKBitmap? DecodeOne(string path, int longestEdgeNeeded)
+    {
+        if (longestEdgeNeeded <= 0)
+        {
+            return SKBitmap.Decode(path);
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var codec = SKCodec.Create(stream);
+
+            if (codec is null)
+            {
+                return SKBitmap.Decode(path);
+            }
+
+            var longest = Math.Max(codec.Info.Width, codec.Info.Height);
+            if (longest <= longestEdgeNeeded * 2)
+            {
+                return SKBitmap.Decode(path);
+            }
+
+            // The codec rounds this to a size it can actually produce -- for JPEG,
+            // a half, a quarter, an eighth -- so ask and then believe the answer.
+            var wanted = Math.Min(1f, (longestEdgeNeeded * 2f) / longest);
+            var dimensions = codec.GetScaledDimensions(wanted);
+
+            var info = new SKImageInfo(
+                dimensions.Width, dimensions.Height,
+                SKColorType.Rgba8888, SKAlphaType.Premul);
+
+            var bitmap = new SKBitmap(info);
+            if (codec.GetPixels(info, bitmap.GetPixels()) == SKCodecResult.Success)
+            {
+                return bitmap;
+            }
+
+            bitmap.Dispose();
+        }
+        catch (Exception)
+        {
+            // A scaled decode is an optimisation, never a reason to lose a photo.
+        }
+
+        return SKBitmap.Decode(path);
+    }
+
+    /// <summary>The template’s art, or null when it has none or it cannot be read.</summary>
+    private SKBitmap? LoadArt(StripTemplate template, string templateFolder, int longestEdgeNeeded)
+    {
+        if (string.IsNullOrWhiteSpace(template.Overlay))
+        {
+            return null;
+        }
+
+        var path = Path.Combine(templateFolder, template.Overlay);
+        if (!File.Exists(path))
+        {
+            logger.LogWarning("Art {Art} not found; the strip will have none.", path);
+            return null;
+        }
+
+        var art = DecodeOne(path, longestEdgeNeeded);
+        if (art is null)
+        {
+            logger.LogWarning("Art {Art} could not be decoded.", path);
+        }
+
+        return art;
+    }
+
+    private static void Dispose(IEnumerable<SKBitmap?> bitmaps)
+    {
+        foreach (var bitmap in bitmaps)
+        {
+            bitmap?.Dispose();
+        }
     }
 
     private static SKColor ParseColour(string value) =>
