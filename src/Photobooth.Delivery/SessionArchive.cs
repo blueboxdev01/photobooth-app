@@ -101,6 +101,11 @@ public sealed class SessionArchive(
     /// operator to do exactly that. A cache that held on to what it read first
     /// would quietly make that advice wrong.
     /// </para>
+    /// <para>
+    /// A record already read is also what answers while a writer is replacing
+    /// the file, so a delivery poll landing in that gap no longer loses the
+    /// session -- which is stronger than the uncached version managed.
+    /// </para>
     /// </summary>
     private readonly Dictionary<string, Cached> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _cacheLock = new();
@@ -275,13 +280,28 @@ public sealed class SessionArchive(
 
             foreach (var folder in Directory.EnumerateDirectories(Root))
             {
-                var file = new FileInfo(Path.Combine(folder, "session.json"));
-                if (!file.Exists)
+                var name = Path.GetFileName(folder);
+                var path = Path.Combine(folder, "session.json");
+                var before = new FileInfo(path);
+
+                // May be default, whose Record is null -- that is the "never read
+                // this one" case, and it is checked for rather than assumed away.
+                _cache.TryGetValue(name, out var cached);
+
+                if (!before.Exists)
                 {
+                    // The folder is here but the record is not, which is what a
+                    // replace in flight looks like from the outside. A session we
+                    // have read before is not lost because we looked in the gap.
+                    if (cached.Record is not null)
+                    {
+                        present.Add(name);
+                        records.Add(cached.Record);
+                    }
+
                     continue;
                 }
 
-                var name = Path.GetFileName(folder);
                 present.Add(name);
 
                 // Length as well as write time, because a timestamp alone is only
@@ -289,9 +309,9 @@ public sealed class SessionArchive(
                 // stick used as an output folder is likely to be, rounds to two
                 // seconds -- and the upload queue can rewrite a record twice
                 // inside that.
-                if (_cache.TryGetValue(name, out var cached)
-                    && cached.WrittenUtc == file.LastWriteTimeUtc
-                    && cached.Length == file.Length)
+                if (cached.Record is not null
+                    && cached.WrittenUtc == before.LastWriteTimeUtc
+                    && cached.Length == before.Length)
                 {
                     records.Add(cached.Record);
                     continue;
@@ -300,24 +320,42 @@ public sealed class SessionArchive(
                 try
                 {
                     var record = JsonSerializer.Deserialize<SessionRecord>(
-                        ReadShared(file.FullName), Json);
+                        ReadShared(path), Json)
+                        ?? throw new JsonException($"{path} contained null.");
 
-                    if (record is not null)
+                    // Stat again, and keep the entry only if the file did not move
+                    // underneath the read. Otherwise the stat taken before it and
+                    // the content taken after it describe different versions, and
+                    // the cache would answer a later matching stat with the wrong
+                    // record. Unremembered here just means read again next time.
+                    var after = new FileInfo(path);
+                    if (after.Exists
+                        && after.LastWriteTimeUtc == before.LastWriteTimeUtc
+                        && after.Length == before.Length)
                     {
-                        _cache[name] = new Cached(file.LastWriteTimeUtc, file.Length, record);
-                        records.Add(record);
+                        _cache[name] = new Cached(before.LastWriteTimeUtc, before.Length, record);
                     }
+
+                    records.Add(record);
                 }
                 catch (Exception ex)
                 {
-                    // Left out of the cache as well as the results, so a file being
-                    // written at this instant is re-read next time rather than
-                    // remembered as broken.
-                    logger.LogWarning(ex, "Could not read {Path}.", file.FullName);
+                    if (cached.Record is not null)
+                    {
+                        // Almost certainly the writer mid-replace. The copy we
+                        // already have is a better answer than dropping the session
+                        // out of the list -- a delivery poll that loses a session
+                        // reports it as gone, and the screens act on that.
+                        records.Add(cached.Record);
+                    }
+                    else
+                    {
+                        logger.LogWarning(ex, "Could not read {Path}.", path);
+                    }
                 }
             }
 
-            // A session deleted from disk stops being remembered -- otherwise the
+            // A session whose folder is gone stops being remembered -- otherwise the
             // booth would hold every session of the evening in memory.
             foreach (var gone in _cache.Keys.Where(k => !present.Contains(k)).ToList())
             {

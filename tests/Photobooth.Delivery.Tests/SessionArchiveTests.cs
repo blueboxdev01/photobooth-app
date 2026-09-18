@@ -128,57 +128,85 @@ public sealed class SessionArchiveTests : IDisposable
         var record = Save();
         var folder = _archive.FolderFor(record);
 
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // Counted out rather than run against the clock. Spinning readers for a
+        // fixed two seconds and then asserting the writer got a turn makes the
+        // test a bet on the scheduler: on a four-core CI runner with three
+        // readers in tight loops, the writer task can genuinely never be
+        // scheduled, and "the writer never ran" says nothing about the archive.
+        const int writes = 200;
+        var done = new TaskCompletionSource();
+
+        // A backstop, not a deadline. Reached only if something has actually
+        // deadlocked, and generous enough that a slow machine never sees it.
+        using var abandon = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var _ = abandon.Token.Register(() => done.TrySetResult());
 
         // Hammer it from both sides, as the console polling and an upload
         // finishing would.
         var readers = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
         {
-            while (!stop.IsCancellationRequested)
+            while (!done.Task.IsCompleted)
             {
                 _archive.All();
             }
         }));
 
-        var writes = 0;
         var writer = Task.Run(() =>
         {
-            while (!stop.IsCancellationRequested)
+            for (var i = 1; i <= writes; i++)
             {
-                _archive.WriteRecord(folder, record with { UploadAttempts = ++writes });
+                _archive.WriteRecord(folder, record with { UploadAttempts = i });
             }
+
+            done.TrySetResult();
         });
 
         // No exception from either side is the assertion.
         await Task.WhenAll([writer, .. readers]);
 
-        Assert.True(writes > 0, "the writer never ran");
+        Assert.False(abandon.IsCancellationRequested, "the writers and readers deadlocked");
         Assert.Equal(UploadStates.NotAttempted, _archive.All().Single().UploadState);
+        Assert.Equal(writes, _archive.All().Single().UploadAttempts);
     }
 
-    /// <summary>A reader must never catch the file mid-write and skip the session.</summary>
+    /// <summary>
+    /// A reader must never catch the file mid-write and skip the session.
+    ///
+    /// <para>
+    /// A session missing from a delivery poll is not a cosmetic glitch: the
+    /// screens act on that list, so a session that blinks out of it has been
+    /// reported as gone. The lengths vary deliberately, so a replacement is not
+    /// the same size as what it replaces and a torn read cannot go unnoticed.
+    /// </para>
+    /// </summary>
     [Fact]
     public async Task A_reader_never_sees_a_half_written_record()
     {
         var record = Save();
         var folder = _archive.FolderFor(record);
 
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // Counted, not timed -- see the note in the test above.
+        const int writes = 200;
+        var done = new TaskCompletionSource();
+
+        using var abandon = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var _ = abandon.Token.Register(() => done.TrySetResult());
 
         var writer = Task.Run(() =>
         {
-            var n = 0;
-            while (!stop.IsCancellationRequested)
+            for (var n = 0; n < writes; n++)
             {
                 _archive.WriteRecord(
                     folder,
-                    record with { UploadError = new string('x', 500 + (n++ % 400)) });
+                    record with { UploadError = new string('x', 500 + (n % 400)) });
             }
+
+            done.TrySetResult();
         });
 
         var reads = 0;
         var lost = 0;
-        while (!stop.IsCancellationRequested)
+        while (!done.Task.IsCompleted)
         {
             reads++;
             if (_archive.All().Count != 1)
@@ -189,6 +217,7 @@ public sealed class SessionArchiveTests : IDisposable
 
         await writer;
 
+        Assert.False(abandon.IsCancellationRequested, "the writer never finished");
         Assert.True(reads > 10, $"only managed {reads} reads");
         Assert.Equal(0, lost);
     }
@@ -208,33 +237,69 @@ public sealed class SessionArchiveTests : IDisposable
     // --- reading through the cache -----------------------------------------
 
     /// <summary>
-    /// The performance claim, stated so it can fail.
+    /// An unchanged session.json is answered from memory rather than reopened.
     ///
     /// <para>
-    /// A session.json that has not changed is not opened again. Proven by
-    /// replacing the file with rubbish while carefully leaving its length and
-    /// write time alone: anything that re-reads gets a parse failure and drops
-    /// the session, so the good record coming back can only have come from
-    /// memory. Nothing does this in reality -- it is a way to observe a thing
-    /// whose only other symptom is a stopwatch.
+    /// Observed as a stopwatch, because it can no longer be observed any other
+    /// way: a read that fails now falls back to the remembered copy, so
+    /// sabotaging the file on disk produces the right answer whether the cache
+    /// was consulted or not. That fallback is deliberate, and it costs this test
+    /// its old trick.
+    /// </para>
+    ///
+    /// <para>
+    /// Cold and warm are measured against each other rather than against a
+    /// number of milliseconds, so the test states a ratio no machine can be too
+    /// slow to satisfy. A separate archive is walked first so nothing here pays
+    /// for JIT -- otherwise the cold pass carries that cost and the ratio flatters
+    /// itself.
     /// </para>
     /// </summary>
     [Fact]
     public void An_unchanged_session_is_not_read_from_disk_twice()
     {
-        var record = Save();
-        var path = Path.Combine(_archive.FolderFor(record), "session.json");
+        const int sessions = 400;
+        Directory.CreateDirectory(_root);
 
-        Assert.Equal(record.FolderName, _archive.All().Single().FolderName);
+        for (var i = 0; i < sessions; i++)
+        {
+            var folder = Path.Combine(_root, $"2026-09-18_19{i:D3}_tok{i:D4}");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "session.json"), $$"""
+                {"token":"tok{{i:D4}}","folderName":"2026-09-18_19{{i:D3}}_tok{{i:D4}}",
+                 "createdUtc":"2026-09-18T12:00:00+00:00","template":"classic","shotCount":4,
+                 "strip":"strip.jpg","photos":["photo-1.jpg","photo-2.jpg","photo-3.jpg"],
+                 "sourceFiles":["IMG_1.JPG","IMG_2.JPG","IMG_3.JPG"],
+                 "uploadState":"notAttempted","uploadAttempts":0}
+                """);
+        }
 
-        var length = new FileInfo(path).Length;
-        var written = File.GetLastWriteTimeUtc(path);
+        // Somebody else pays for the JIT.
+        Fresh().All();
 
-        File.WriteAllText(path, new string('x', (int)length));
-        File.SetLastWriteTimeUtc(path, written);
+        var cold = new SessionArchive(
+            Options.Create(new ArchiveOptions { Folder = _root }),
+            NullLogger<SessionArchive>.Instance);
 
-        Assert.Equal(record.FolderName, _archive.All().Single().FolderName);
+        var first = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(sessions, cold.All().Count);
+        first.Stop();
+
+        var second = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(sessions, cold.All().Count);
+        second.Stop();
+
+        Assert.True(
+            second.Elapsed * 2 < first.Elapsed,
+            $"reading {sessions} unchanged sessions again took "
+            + $"{second.Elapsed.TotalMilliseconds:F1}ms against a first pass of "
+            + $"{first.Elapsed.TotalMilliseconds:F1}ms -- they are being reopened "
+            + "and parsed every time.");
     }
+
+    private SessionArchive Fresh() => new(
+        Options.Create(new ArchiveOptions { Folder = _root }),
+        NullLogger<SessionArchive>.Instance);
 
     /// <summary>
     /// The archive is a pile of text files on purpose, and the runbook tells the
