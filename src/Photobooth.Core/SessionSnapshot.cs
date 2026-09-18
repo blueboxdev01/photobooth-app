@@ -32,7 +32,20 @@ public sealed record SessionSnapshot(
     string? Message,
     string? StripUrl = null,
     string? SessionFolder = null,
-    int? RetakingSlot = null)
+    int? RetakingSlot = null,
+    /// <summary>
+    /// What the booth’s clock said when this was built.
+    ///
+    /// <para>
+    /// Here because a countdown must not be computed against the screen’s own
+    /// clock. The operator console runs on the booth, so its clock agrees by
+    /// definition; a second screen elsewhere has a clock of its own, and one
+    /// three seconds out showed the operator three seconds and the guest six.
+    /// Both screens work out how far their clock is from this and count the
+    /// same seconds regardless.
+    /// </para>
+    /// </summary>
+    DateTimeOffset? ServerNowUtc = null)
 {
     public int CapturedCount => Photos.Count;
 

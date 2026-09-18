@@ -30,6 +30,8 @@ export interface SessionSnapshot {
   isReordered: boolean
   /** Absolute instants, so the browser ticks the countdown locally. */
   countdownEndsUtc: string | null
+  /** What the booth’s clock said when this snapshot was built. */
+  serverNowUtc: string | null
   timeoutAtUtc: string | null
   startedUtc: string | null
   message: string | null

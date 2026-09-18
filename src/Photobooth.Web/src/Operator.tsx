@@ -224,7 +224,7 @@ function Delivery({
  */
 function Stage({ snapshot }: { snapshot: SessionSnapshot }) {
   const counting = snapshot.state === 'Countdown'
-  const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null)
+  const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null, snapshot.serverNowUtc)
 
   // "0/4" rather than "0 of 4": the number is read across a room, and the
   // countdown replaces it outright because during a countdown nothing else

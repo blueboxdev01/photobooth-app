@@ -117,8 +117,20 @@ export async function reorder(positions: number[]): Promise<string | null> {
   }
 }
 
-/** Seconds left until an absolute deadline, ticking locally. */
-export function useCountdown(deadlineUtc: string | null) {
+/**
+ * Seconds left, counted on the booth’s clock rather than this screen’s.
+ *
+ * The deadline is an absolute instant decided by the booth. Subtracting the
+ * local Date.now() from it means every screen counts on its own clock -- fine
+ * on the operator console, which runs on the booth itself, and wrong on any
+ * second screen whose clock is its own business. One three seconds adrift
+ * showed the operator three seconds and the guest six.
+ *
+ * So each snapshot carries what the booth’s clock said when it was built, and
+ * the difference against ours is applied to the deadline. Recomputed on every
+ * snapshot, so it follows a clock that drifts or gets corrected mid-event.
+ */
+export function useCountdown(deadlineUtc: string | null, serverNowUtc?: string | null) {
   const [remaining, setRemaining] = useState<number | null>(null)
 
   useEffect(() => {
@@ -127,12 +139,17 @@ export function useCountdown(deadlineUtc: string | null) {
       return
     }
 
+    // Measured when the snapshot arrives. The wire time between the booth
+    // stamping it and this running is a few milliseconds on a local network,
+    // which is far below anything a guest can perceive in a countdown.
+    const skew = serverNowUtc ? new Date(serverNowUtc).getTime() - Date.now() : 0
+
     const end = new Date(deadlineUtc).getTime()
-    const tick = () => setRemaining(Math.max(0, (end - Date.now()) / 1000))
+    const tick = () => setRemaining(Math.max(0, (end - (Date.now() + skew)) / 1000))
     tick()
     const id = setInterval(tick, 100)
     return () => clearInterval(id)
-  }, [deadlineUtc])
+  }, [deadlineUtc, serverNowUtc])
 
   return remaining
 }

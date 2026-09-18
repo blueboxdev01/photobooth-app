@@ -518,7 +518,8 @@ public sealed class SessionEngine : IDisposable
         _message,
         _stripUrl,
         _sessionFolder,
-        _retakeSlot);
+        _retakeSlot,
+        _time.GetUtcNow());
 
     private void Publish(SessionSnapshot snapshot) => Changed?.Invoke(this, snapshot);
 

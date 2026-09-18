@@ -126,7 +126,7 @@ function Handover({
 
 function Overlay({ snapshot }: { snapshot: SessionSnapshot }) {
   const counting = snapshot.state === 'Countdown'
-  const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null)
+  const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null, snapshot.serverNowUtc)
 
   if (counting && remaining !== null) {
     return (
