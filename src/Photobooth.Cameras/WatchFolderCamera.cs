@@ -43,6 +43,30 @@ public sealed class WatchFolderCamera : ICameraDevice
     private readonly ConcurrentDictionary<string, byte> _abandoned =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Files already judged too old for this session, and what they looked like
+    /// when we judged them.
+    ///
+    /// <para>
+    /// The watch folder is never emptied during an event -- it is the night's
+    /// negatives -- so by the last hour it holds every photo taken. Without this,
+    /// each sweep re-offered all of them, and every one cost a full stability
+    /// wait before being rejected on a timestamp. Forty-eight files is about
+    /// twenty seconds of the ingest queue, repeated every two seconds, and a
+    /// genuine photo lands at the back of it: the countdown goes late and the
+    /// strip is slow, worsening all evening as the folder fills.
+    /// </para>
+    ///
+    /// <para>
+    /// Keyed on what was checked rather than on the path alone, so a file the
+    /// camera later overwrites is judged afresh.
+    /// </para>
+    /// </summary>
+    private readonly ConcurrentDictionary<string, StaleMemo> _stale =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly record struct StaleMemo(DateTime WrittenUtc, DateTimeOffset JudgedAgainst);
+
     private readonly ConcurrentDictionary<string, byte> _ignoredByExtension =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -157,6 +181,7 @@ public sealed class WatchFolderCamera : ICameraDevice
         _abandoned.Clear();
         _ignoredByExtension.Clear();
         _inFlight.Clear();
+        _stale.Clear();
 
         _logger.LogInformation("Watch folder changed to {Folder}.", resolved);
 
@@ -216,6 +241,16 @@ public sealed class WatchFolderCamera : ICameraDevice
             return;
         }
 
+        // A stat, against the stability wait this avoids. The file is re-judged if
+        // it has been rewritten since, or if AcceptFrom has moved back behind the
+        // point it was measured against.
+        if (_stale.TryGetValue(path, out var memo)
+            && AcceptFrom >= memo.JudgedAgainst
+            && LastWrittenUtc(path) == memo.WrittenUtc)
+        {
+            return;
+        }
+
         if (!_inFlight.TryAdd(path, 0))
         {
             return;
@@ -224,6 +259,70 @@ public sealed class WatchFolderCamera : ICameraDevice
         if (!_candidates.Writer.TryWrite(path))
         {
             _inFlight.TryRemove(path, out _);
+        }
+    }
+
+    /// <summary>
+    /// Turn away a photo from earlier in the evening, and remember having done so.
+    ///
+    /// <para>
+    /// Last-write rather than creation time, because a file copied into the folder
+    /// keeps its original creation timestamp. Reported only on the first judgement
+    /// of a given file, so the diagnostics feed shows the night's stale photos
+    /// once each instead of once per sweep for ever.
+    /// </para>
+    /// </summary>
+    private bool RejectIfStale(string path, FileInfo? settled = null)
+    {
+        FileInfo info;
+        try
+        {
+            info = settled ?? new FileInfo(path);
+            if (!info.Exists)
+            {
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Unreadable right now is not the same as too old. Leave it to the
+            // stability wait, which is built to tell those apart.
+            return false;
+        }
+
+        var written = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+        if (written >= AcceptFrom)
+        {
+            return false;
+        }
+
+        var first = !_stale.ContainsKey(path);
+        _stale[path] = new StaleMemo(info.LastWriteTimeUtc, AcceptFrom);
+
+        if (first)
+        {
+            _logger.LogInformation(
+                "Ignoring {File}: written {Written}, before this session began {From}.",
+                info.Name, written, AcceptFrom);
+            Report(path, IngestOutcome.Rejected,
+                $"written {written:HH:mm:ss}, before this session began {AcceptFrom:HH:mm:ss}",
+                info.Length);
+        }
+
+        return true;
+    }
+
+    /// <summary>The file's write time, or default when it cannot be read.</summary>
+    private static DateTime LastWrittenUtc(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? info.LastWriteTimeUtc : default;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return default;
         }
     }
 
@@ -304,6 +403,15 @@ public sealed class WatchFolderCamera : ICameraDevice
             return;
         }
 
+        // Before the stability wait, not after it. A file still being written has
+        // a last-write time of now and is never stale, so nothing that deserves
+        // the wait is denied it -- while a photo from two hours ago is turned away
+        // for the cost of a stat.
+        if (RejectIfStale(path))
+        {
+            return;
+        }
+
         // Measured before and after so a failure can tell a stuck transfer from a
         // merely slow one.
         var sizeBefore = CurrentLength(path);
@@ -326,17 +434,11 @@ public sealed class WatchFolderCamera : ICameraDevice
             return;
         }
 
-        // Stale-file guard. Uses last-write rather than creation time, because a
-        // file copied into the folder keeps its original creation timestamp.
-        var written = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
-        if (written < AcceptFrom)
+        // Again, now that the file has settled: the write time it finished with is
+        // the authoritative one, and a slow transfer may have begun before the
+        // early check and ended after it.
+        if (RejectIfStale(path, info))
         {
-            _logger.LogInformation(
-                "Ignoring {File}: written {Written}, before this session began {From}.",
-                info.Name, written, AcceptFrom);
-            Report(path, IngestOutcome.Rejected,
-                $"written {written:HH:mm:ss}, before this session began {AcceptFrom:HH:mm:ss}",
-                info.Length);
             return;
         }
 

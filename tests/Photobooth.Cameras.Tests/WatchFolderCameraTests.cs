@@ -371,4 +371,112 @@ public sealed class WatchFolderCameraTests : IAsyncLifetime
         Assert.True(await WaitForPhotosAsync(1),
             $"the sweep did not recover a file the watcher missed; saw {AcceptedCount}");
     }
+
+    /// <summary>
+    /// A watch folder filling up over an evening must not slow the booth down.
+    ///
+    /// <para>
+    /// Nobody empties the folder between guests, so by the end of a night it holds
+    /// every photo taken. Each was once re-offered on every sweep and made to sit
+    /// through a full stability wait before being rejected on its timestamp --
+    /// work that grows with the evening and lands in front of the photo actually
+    /// being waited for. That is what "the countdown is late and the strip is slow,
+    /// but only after a while" was.
+    /// </para>
+    ///
+    /// <para>
+    /// Stated as decisions rather than as a duration: an old file is judged once,
+    /// however many times it is swept past. A timing assertion here would measure
+    /// the CI runner more than the booth.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Photos_left_from_earlier_are_judged_once_not_once_per_sweep()
+    {
+        Build();
+
+        var decisions = new List<IngestEvent>();
+        _camera.IngestDecision += (_, e) => { lock (decisions) { decisions.Add(e); } };
+
+        await _camera.ConnectAsync();
+        _camera.AcceptFrom = DateTimeOffset.UtcNow;
+
+        const int leftovers = 12;
+        for (var i = 0; i < leftovers; i++)
+        {
+            var path = Path.Combine(WatchDir, $"OLD_{i:D4}.JPG");
+            File.WriteAllBytes(path, new byte[4096]);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-2));
+        }
+
+        // Sweeps run every 150ms, so this is twenty or so passes over the folder.
+        await Task.Delay(3000);
+
+        List<IngestEvent> old;
+        lock (decisions)
+        {
+            old = decisions.Where(e => e.FileName.StartsWith("OLD_")).ToList();
+        }
+
+        var repeated = old
+            .GroupBy(e => e.FileName)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"{g.Key} x{g.Count()}")
+            .ToList();
+
+        Assert.True(repeated.Count == 0,
+            "old photos were re-examined on later sweeps: " + string.Join(", ", repeated));
+
+        Assert.Equal(leftovers, old.Count);
+        Assert.All(old, e => Assert.Equal(IngestOutcome.Rejected, e.Outcome));
+    }
+
+    /// <summary>
+    /// The consequence the guest sees: a full folder does not stand between the
+    /// shutter and the screen.
+    ///
+    /// <para>
+    /// This one does assert a duration, which the rest of this file deliberately
+    /// avoids -- so the margin is made enormous rather than tight. Three hundred
+    /// leftovers cost a booth that examines them properly upwards of fifteen
+    /// seconds per pass; a booth that skips them takes well under one. The bound
+    /// is ten seconds, which no amount of CI slowness turns into fifteen and no
+    /// healthy run comes close to.
+    /// </para>
+    ///
+    /// <para>
+    /// Without it nothing fails when the skip is removed but the reporting stays
+    /// deduplicated: the log looks right, the decisions look right, and the only
+    /// symptom is the booth being slow -- which is exactly the bug that was
+    /// reported and exactly what a test of decisions alone cannot see.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_new_photo_is_not_stuck_behind_a_folder_full_of_old_ones()
+    {
+        Build();
+        await _camera.ConnectAsync();
+        _camera.AcceptFrom = DateTimeOffset.UtcNow;
+
+        for (var i = 0; i < 300; i++)
+        {
+            var path = Path.Combine(WatchDir, $"OLD_{i:D4}.JPG");
+            File.WriteAllBytes(path, new byte[4096]);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-2));
+        }
+
+        var started = DateTime.UtcNow;
+        await _mock.SimulatePressAsync();
+
+        Assert.True(await WaitForPhotosAsync(1, timeoutMs: 30_000),
+            $"the new photo never arrived; saw {AcceptedCount}");
+
+        var took = DateTime.UtcNow - started;
+
+        Assert.True(took < TimeSpan.FromSeconds(10),
+            $"the new photo took {took.TotalSeconds:F1}s to arrive behind 300 old "
+            + "files -- it is queueing behind them rather than skipping them.");
+
+        Assert.DoesNotContain(Accepted, p => p.FileName.StartsWith("OLD_"));
+    }
 }
