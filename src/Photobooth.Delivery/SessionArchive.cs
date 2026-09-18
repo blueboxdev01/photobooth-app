@@ -81,6 +81,32 @@ public sealed class SessionArchive(
 
     private readonly ArchiveOptions _options = options.Value;
 
+    /// <summary>
+    /// What each session.json held, and what the file looked like when we read it.
+    ///
+    /// <para>
+    /// Both screens poll delivery every few seconds and all of it goes through
+    /// <see cref="All"/> -- which opened and parsed every session.json on disk,
+    /// every time. That is fixed work per session, so it grows all evening:
+    /// measured at 5ms over 8 sessions and 35ms over 200. By the end of a long
+    /// night the booth is re-reading hours of finished sessions to answer "is this
+    /// one delivered yet".
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Revalidated, not trusted.</b> The entry is reused only while the file's
+    /// write time and length both still match. This is not caution for its own
+    /// sake: the archive is deliberately a pile of text files precisely so a stuck
+    /// session can be unstuck by editing one by hand, and the runbook tells the
+    /// operator to do exactly that. A cache that held on to what it read first
+    /// would quietly make that advice wrong.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<string, Cached> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Lock _cacheLock = new();
+
+    private readonly record struct Cached(DateTime WrittenUtc, long Length, SessionRecord Record);
+
     public string Root => Path.GetFullPath(_options.Folder);
 
     /// <summary>
@@ -194,6 +220,17 @@ public sealed class SessionArchive(
             try
             {
                 File.Move(staging, path, overwrite: true);
+
+                // Dropped rather than replaced: the next read takes the file's own
+                // write time with it. Explicit here because we are the writer and
+                // need not wait for a clock to disagree -- the revalidation in All()
+                // is for edits made outside this process.
+                lock (_cacheLock)
+                {
+                    _cache.Remove(Path.GetFileName(
+                        folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+                }
+
                 return;
             }
             catch (Exception ex) when (
@@ -231,26 +268,60 @@ public sealed class SessionArchive(
         }
 
         var records = new List<SessionRecord>();
-        foreach (var folder in Directory.EnumerateDirectories(Root))
-        {
-            var path = Path.Combine(folder, "session.json");
-            if (!File.Exists(path))
-            {
-                continue;
-            }
 
-            try
+        lock (_cacheLock)
+        {
+            var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var folder in Directory.EnumerateDirectories(Root))
             {
-                var record = JsonSerializer.Deserialize<SessionRecord>(
-                    ReadShared(path), Json);
-                if (record is not null)
+                var file = new FileInfo(Path.Combine(folder, "session.json"));
+                if (!file.Exists)
                 {
-                    records.Add(record);
+                    continue;
+                }
+
+                var name = Path.GetFileName(folder);
+                present.Add(name);
+
+                // Length as well as write time, because a timestamp alone is only
+                // as fine-grained as the filesystem: FAT32, which is what a USB
+                // stick used as an output folder is likely to be, rounds to two
+                // seconds -- and the upload queue can rewrite a record twice
+                // inside that.
+                if (_cache.TryGetValue(name, out var cached)
+                    && cached.WrittenUtc == file.LastWriteTimeUtc
+                    && cached.Length == file.Length)
+                {
+                    records.Add(cached.Record);
+                    continue;
+                }
+
+                try
+                {
+                    var record = JsonSerializer.Deserialize<SessionRecord>(
+                        ReadShared(file.FullName), Json);
+
+                    if (record is not null)
+                    {
+                        _cache[name] = new Cached(file.LastWriteTimeUtc, file.Length, record);
+                        records.Add(record);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Left out of the cache as well as the results, so a file being
+                    // written at this instant is re-read next time rather than
+                    // remembered as broken.
+                    logger.LogWarning(ex, "Could not read {Path}.", file.FullName);
                 }
             }
-            catch (Exception ex)
+
+            // A session deleted from disk stops being remembered -- otherwise the
+            // booth would hold every session of the evening in memory.
+            foreach (var gone in _cache.Keys.Where(k => !present.Contains(k)).ToList())
             {
-                logger.LogWarning(ex, "Could not read {Path}.", path);
+                _cache.Remove(gone);
             }
         }
 

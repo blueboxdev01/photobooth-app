@@ -204,4 +204,119 @@ public sealed class SessionArchiveTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(folder, "*.tmp"));
         Assert.Equal(UploadStates.Uploaded, _archive.All().Single().UploadState);
     }
+
+    // --- reading through the cache -----------------------------------------
+
+    /// <summary>
+    /// The performance claim, stated so it can fail.
+    ///
+    /// <para>
+    /// A session.json that has not changed is not opened again. Proven by
+    /// replacing the file with rubbish while carefully leaving its length and
+    /// write time alone: anything that re-reads gets a parse failure and drops
+    /// the session, so the good record coming back can only have come from
+    /// memory. Nothing does this in reality -- it is a way to observe a thing
+    /// whose only other symptom is a stopwatch.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void An_unchanged_session_is_not_read_from_disk_twice()
+    {
+        var record = Save();
+        var path = Path.Combine(_archive.FolderFor(record), "session.json");
+
+        Assert.Equal(record.FolderName, _archive.All().Single().FolderName);
+
+        var length = new FileInfo(path).Length;
+        var written = File.GetLastWriteTimeUtc(path);
+
+        File.WriteAllText(path, new string('x', (int)length));
+        File.SetLastWriteTimeUtc(path, written);
+
+        Assert.Equal(record.FolderName, _archive.All().Single().FolderName);
+    }
+
+    /// <summary>
+    /// The archive is a pile of text files on purpose, and the runbook tells the
+    /// operator to edit one by hand to release a session that has jammed. A cache
+    /// that kept what it read first would make that instruction quietly false --
+    /// the operator would fix the file, watch nothing happen, and have no way to
+    /// tell why.
+    /// </summary>
+    [Fact]
+    public void A_record_edited_by_hand_is_picked_up()
+    {
+        var record = Save();
+        var path = Path.Combine(_archive.FolderFor(record), "session.json");
+
+        Assert.Equal(UploadStates.NotAttempted, _archive.All().Single().UploadState);
+
+        // As an operator would: the booth is not holding the file, and the edit
+        // lands some time after the booth last read it.
+        var edited = File.ReadAllText(path)
+            .Replace(UploadStates.NotAttempted, UploadStates.Pending);
+
+        File.WriteAllText(path, edited);
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5));
+
+        Assert.Equal(UploadStates.Pending, _archive.All().Single().UploadState);
+    }
+
+    /// <summary>
+    /// Deleting a session folder is how an operator removes a guest's photos, and it
+    /// has to actually remove them rather than leave a remembered copy answering
+    /// for them.
+    /// </summary>
+    [Fact]
+    public void A_deleted_session_stops_being_listed()
+    {
+        var record = Save();
+
+        Assert.Single(_archive.All());
+
+        Directory.Delete(_archive.FolderFor(record), recursive: true);
+
+        Assert.Empty(_archive.All());
+    }
+
+    /// <summary>
+    /// The booth's own writes are never missed, even when the file gives nothing
+    /// away.
+    ///
+    /// <para>
+    /// The upload queue counts attempts, so 1 becomes 2 in a file of exactly the
+    /// same length -- and on a FAT32 output folder, which is what a USB stick is,
+    /// the write time it is stamped with rounds to two seconds and need not move
+    /// either. This reproduces that by putting the timestamp back: from the
+    /// outside the file is untouched, and only the writer knowing it wrote can
+    /// tell. Without that, a retry counter would stick and the queue would read
+    /// its own work as though it had never happened.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_rewrite_of_the_same_size_at_the_same_moment_is_still_seen()
+    {
+        var record = Save();
+        var folder = _archive.FolderFor(record);
+        var path = Path.Combine(folder, "session.json");
+
+        Assert.Equal(0, _archive.All().Single().UploadAttempts);
+
+        var before = new FileInfo(path);
+        var length = before.Length;
+        var written = before.LastWriteTimeUtc;
+
+        _archive.WriteRecord(folder, record with { UploadAttempts = 1 });
+
+        // Hold the filesystem still, the way a coarse one would.
+        File.SetLastWriteTimeUtc(path, written);
+
+        // The premise, checked rather than assumed: if a future field made these
+        // differ, the test would pass for the wrong reason and stop guarding
+        // anything.
+        Assert.Equal(length, new FileInfo(path).Length);
+        Assert.Equal(written, File.GetLastWriteTimeUtc(path));
+
+        Assert.Equal(1, _archive.All().Single().UploadAttempts);
+    }
 }
