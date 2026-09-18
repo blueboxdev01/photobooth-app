@@ -9,6 +9,17 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.11" />
     <PackageReference Include="SkiaSharp" Version="4.151.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.151.2" />
+
+    <!-- Purely a GIF encoder, and pinned to the 2.1 line on purpose.
+         SkiaSharp cannot write GIF at all: its native library exports encoders
+         for JPEG, PNG and WebP and nothing else, so Encode(Gif) returns null
+         rather than failing loudly.
+         2.1.x is Apache-2.0. The 3.x line moved to the Six Labors Split License
+         (paid above a revenue threshold) and 4.x demands a licence file at build
+         time, which would stop the release workflow dead. This line still gets
+         patches, and it only ever sees pixels we rendered ourselves. It never
+         decodes a file from a camera, a guest or an operator. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.13" />
   </ItemGroup>
 
   <PropertyGroup>

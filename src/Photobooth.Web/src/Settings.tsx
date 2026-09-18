@@ -32,6 +32,10 @@ interface SettingsResponse {
     backgroundColor: string
     backgroundImage: string | null
   }
+  animation: {
+    /** Whether each session also gets a looping GIF of its strip. */
+    enabled: boolean
+  }
   delivery: {
     /** A Google OAuth client exists in this build at all. */
     configured: boolean
@@ -198,7 +202,7 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
 
   return (
     <section className="settings">
-      <h2>Setup</h2>
+      <h2>Settings</h2>
 
       {status && <p className={status.ok ? 'muted' : 'banner'}>{status.text}</p>}
 
@@ -315,6 +319,28 @@ export function Settings({ onChanged }: { onChanged?: () => void }) {
         </p>
       </div>
 
+      <div className="settings__group">
+        <h3>Animated GIF</h3>
+
+        <div className="controls">
+          <button className="btn btn--primary" disabled={busy}
+                  onClick={() => void save(
+                    { animationEnabled: !data.animation.enabled },
+                    data.animation.enabled
+                      ? 'Sessions will produce a strip only.'
+                      : 'Sessions will also produce a looping GIF.')}>
+            {data.animation.enabled ? 'Stop making GIFs' : 'Also make a GIF of each strip'}
+          </button>
+        </div>
+
+        <p className="muted small">
+          {data.animation.enabled
+            ? <>A looping copy of the strip, saved as <code>strip.gif</code> beside it,
+                with the photos moving between the frames. It adds about a second to
+                each session &mdash; turn it off if a queue is building.</>
+            : <>Off. Sessions produce the strip and the photos only.</>}
+        </p>
+      </div>
       <div className="settings__group">
         <h3>Guest display</h3>
 

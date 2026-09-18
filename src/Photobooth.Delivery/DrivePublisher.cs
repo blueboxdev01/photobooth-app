@@ -109,6 +109,16 @@ public sealed class DrivePublisher(
             // the bulk of a session and doing them in sequence left the folder
             // incomplete for three times longer than it needed to be.
             var pending = record.Photos.Where(p => !already.Contains(p)).ToList();
+
+            // The animation rides with the raws rather than ahead of them: it
+            // is not what the link waits on, but leaving it out would put a
+            // session in Drive that is missing a file the guest can see in
+            // the gallery.
+            if (record.Animation is { } animation && !already.Contains(animation))
+            {
+                pending.Add(animation);
+            }
+
             if (qr is not null && !already.Contains(qr))
             {
                 pending.Add(qr);
@@ -119,7 +129,8 @@ public sealed class DrivePublisher(
             logger.LogInformation(
                 "Published {Session} as {Count} files in {Url}.",
                 record.FolderName,
-                record.Photos.Count + 1 + (qr is null ? 0 : 1),
+                record.Photos.Count + 1 + (qr is null ? 0 : 1)
+                    + (record.Animation is null ? 0 : 1),
                 url);
 
             return PublishResult.Success(folderId, url, qr);

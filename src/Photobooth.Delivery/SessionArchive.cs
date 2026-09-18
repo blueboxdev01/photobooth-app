@@ -46,7 +46,15 @@ public sealed record SessionRecord(
     /// photos so a guest who lost their link can be shown the code again days
     /// later, without the booth having to be running.
     /// </summary>
-    string? Qr = null);
+    string? Qr = null,
+    /// <summary>
+    /// The looping GIF of the strip, if one was made. Null for every session
+    /// archived before the feature existed, and for any session where building
+    /// it failed -- which is why it is nullable and last in this list. A
+    /// required parameter here would stop every existing session.json on disk
+    /// from deserialising.
+    /// </summary>
+    string? Animation = null);
 
 /// <summary>
 /// Writes each session to its own folder on disk.
@@ -103,7 +111,8 @@ public sealed class SessionArchive(
         StripTemplate template,
         IReadOnlyList<CapturedPhoto> captures,
         string stripSource,
-        DateTimeOffset createdUtc)
+        DateTimeOffset createdUtc,
+        string? animationSource = null)
     {
         var folderName = FolderName(createdUtc, token);
         var folder = Path.Combine(Root, folderName);
@@ -136,15 +145,24 @@ public sealed class SessionArchive(
         const string stripName = "strip.jpg";
         File.Copy(stripSource, Path.Combine(folder, stripName), overwrite: true);
 
+        // Named to pair with the strip it is a moving copy of.
+        string? animationName = null;
+        if (animationSource is not null && File.Exists(animationSource))
+        {
+            animationName = "strip.gif";
+            File.Copy(animationSource, Path.Combine(folder, animationName), overwrite: true);
+        }
+
         var record = new SessionRecord(
             token, folderName, createdUtc, template.Name, template.ShotCount,
-            stripName, photoNames, sourceNames);
+            stripName, photoNames, sourceNames, Animation: animationName);
 
         WriteRecord(folder, record);
 
         logger.LogInformation(
-            "Archived session {Folder}: {Count} photos plus the strip.",
-            folderName, photoNames.Count);
+            "Archived session {Folder}: {Count} photos, the strip{Animation}.",
+            folderName, photoNames.Count,
+            animationName is null ? string.Empty : " and the animation");
 
         return record;
     }

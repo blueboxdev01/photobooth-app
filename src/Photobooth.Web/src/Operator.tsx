@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AppShell, Panel, RailSection } from './AppShell'
+import { AppShell, Panel } from './AppShell'
 import { photoUrl } from './types'
 import type { DeliveryUpdate, SessionSnapshot, SessionState } from './types'
 import { command, reorder, useCountdown, useSession } from './useSession'
@@ -25,7 +25,7 @@ const HEADLINE: Record<SessionState, string> = {
 }
 
 export function Operator() {
-  const { snapshot, delivery, camera, connected, outputFolder } = useSession()
+  const { snapshot, delivery, connected } = useSession()
   const [mockResult, setMockResult] = useState<{ ok: boolean; text: string } | null>(null)
 
   if (!snapshot) {
@@ -59,36 +59,44 @@ export function Operator() {
   }
 
   return (
-    <AppShell
-      page="/operator"
-      aside={
-        <>
-          <RailSection title="Session">
-            <button className="btn btn--primary btn--block" onClick={() => command('arm')}>
-              {running ? 'Restart session' : 'Start session'}
-            </button>
-            <div className="btnrow">
-              <button className="btn" disabled={!running} onClick={() => command('retake')}>
-                Retake
-              </button>
-              <button className="btn" disabled={state !== 'TimedOut'}
-                      onClick={() => command('resume')}>
-                Keep waiting
-              </button>
-            </div>
-            <div className="btnrow">
-              <button className="btn btn--go" disabled={state !== 'ReviewShots'}
-                      onClick={() => command('accept')}>
-                Accept
-              </button>
-              <button className="btn btn--stop" disabled={!running}
-                      onClick={() => command('abort')}>
-                Abort
-              </button>
-            </div>
-          </RailSection>
+    <AppShell page="/operator">
+      {!connected && <p className="notice notice--warn">Reconnecting to the booth…</p>}
+      {snapshot.message && <p className="notice">{snapshot.message}</p>}
+      <DeliveryNotice delivery={delivery} />
 
-          <RailSection title="Mock camera">
+      <div className="console">
+        <div className="console__side">
+          <Stage snapshot={snapshot} />
+
+          <button className="btn btn--primary btn--block"
+                  onClick={() => command('arm')}>
+            {running ? 'Restart Session' : 'Start Session'}
+          </button>
+
+          {/* Two by two, and never reordered: an operator reaches for these
+              without looking while talking to a guest, so where they are
+              matters more than which of them happen to be live. */}
+          <div className="btngrid">
+            <button className="btn btn--good" disabled={state !== 'ReviewShots'}
+                    onClick={() => command('accept')}>
+              Accept
+            </button>
+            <button className="btn" disabled={!running}
+                    onClick={() => command('retake')}>
+              Retake
+            </button>
+            <button className="btn btn--danger" disabled={!running}
+                    onClick={() => command('abort')}>
+              Abort
+            </button>
+            <button className="btn btn--hold" disabled={state !== 'TimedOut'}
+                    onClick={() => command('resume')}>
+              Wait
+            </button>
+          </div>
+
+          <details className="mockcam">
+            <summary>Mock camera</summary>
             <p className="hint">
               The app cannot fire the shutter. These stand in for the remote.
             </p>
@@ -102,26 +110,20 @@ export function Operator() {
             {mockResult && (
               <p className={mockResult.ok ? 'hint' : 'hint hint--bad'}>{mockResult.text}</p>
             )}
-          </RailSection>
-        </>
-      }
-    >
-      {!connected && <p className="notice notice--warn">Reconnecting to the booth…</p>}
-      {snapshot.message && <p className="notice">{snapshot.message}</p>}
-      <DeliveryNotice delivery={delivery} />
+          </details>
+        </div>
 
-      <Stage snapshot={snapshot} />
-
-      <Panel
-        title="Shots"
-        actions={state === 'ReviewShots' && snapshot.isReordered ? (
-          <button className="btn btn--quiet" onClick={() => command('order/reset')}>
-            Back to capture order
-          </button>
-        ) : undefined}
-      >
-        <Filmstrip snapshot={snapshot} />
-      </Panel>
+        <Panel
+          title="Shots"
+          actions={state === 'ReviewShots' && snapshot.isReordered ? (
+            <button className="btn btn--quiet" onClick={() => command('order/reset')}>
+              Back to capture order
+            </button>
+          ) : undefined}
+        >
+          <Filmstrip snapshot={snapshot} />
+        </Panel>
+      </div>
 
       {snapshot.stripUrl && (
         <Panel
@@ -135,13 +137,7 @@ export function Operator() {
             <img className="result__strip" src={snapshot.stripUrl} alt="Composed strip" />
             <dl className="facts">
               <dt>Saved to</dt>
-              <dd>
-                {/* The full path, not just the folder name. "Saved to
-                    2026-09-13_2102_eylvz8" tells you nothing about where. */}
-                <code className="path">
-                  {outputFolder ? `${outputFolder}\${snapshot.sessionFolder}` : snapshot.sessionFolder}
-                </code>
-              </dd>
+              <dd><code>{snapshot.sessionFolder}</code></dd>
               <dt>Contents</dt>
               <dd>{snapshot.shotCount} raw photos, the strip, and session.json</dd>
               <Delivery snapshot={snapshot} delivery={delivery} />
@@ -150,11 +146,6 @@ export function Operator() {
         </Panel>
       )}
 
-      {camera && (
-        <Panel title="Watch folder">
-          <code className="path">{camera.watchFolder}</code>
-        </Panel>
-      )}
     </AppShell>
   )
 }
@@ -235,28 +226,24 @@ function Stage({ snapshot }: { snapshot: SessionSnapshot }) {
   const counting = snapshot.state === 'Countdown'
   const remaining = useCountdown(counting ? snapshot.countdownEndsUtc : null)
 
+  // "0/4" rather than "0 of 4": the number is read across a room, and the
+  // countdown replaces it outright because during a countdown nothing else
+  // on this card matters.
   return (
-    <section className={`stagecard stagecard--${snapshot.state}`}>
-      <div className="stagecard__main">
-        <p className="stagecard__state">{snapshot.state}</p>
-        <h1 className="stagecard__headline">{HEADLINE[snapshot.state]}</h1>
-      </div>
+    <section className={`statuscard statuscard--${snapshot.state}`}>
+      <p className="statuscard__label">Status : {snapshot.state}</p>
+      <h1 className="statuscard__headline">{HEADLINE[snapshot.state]}</h1>
 
-      <div className="stagecard__metric">
-        {counting && remaining !== null ? (
-          <>
-            <span className="metric">{Math.max(0, remaining).toFixed(1)}</span>
-            <span className="metric__unit">seconds — press on “1”</span>
-          </>
-        ) : (
-          <>
-            <span className="metric">
-              {snapshot.capturedCount}<span className="metric__of">/{snapshot.shotCount}</span>
-            </span>
-            <span className="metric__unit">photos captured</span>
-          </>
-        )}
-      </div>
+      {counting && remaining !== null ? (
+        <span className="statuscard__count">
+          <strong>{Math.max(0, remaining).toFixed(1)}</strong>
+          <span className="statuscard__unit">seconds &mdash; press on “1”</span>
+        </span>
+      ) : (
+        <span className="statuscard__count">
+          <strong>{snapshot.capturedCount}</strong>/{snapshot.shotCount}
+        </span>
+      )}
     </section>
   )
 }
@@ -326,7 +313,7 @@ function Filmstrip({ snapshot }: { snapshot: SessionSnapshot }) {
           if (!photo) {
             return (
               <figure key={`empty-${i}`} className="frame frame--empty">
-                <span>{i + 1}</span>
+                <span>{String(i + 1).padStart(2, '0')}</span>
               </figure>
             )
           }

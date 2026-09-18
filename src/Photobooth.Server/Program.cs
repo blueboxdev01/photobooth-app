@@ -22,6 +22,18 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 builder.Configuration.AddJsonFile(
     "appsettings.Local.json", optional: true, reloadOnChange: false);
 
+// ...but not so late that it beats the environment. Added here it was the last
+// word on every setting, so an environment variable or a command-line argument
+// was read correctly and then silently overruled on any machine that had this
+// file. A developer's own file should outrank what the build shipped, and be
+// outranked by what the person running it asked for.
+builder.Configuration.AddEnvironmentVariables();
+
+if (args.Length > 0)
+{
+    builder.Configuration.AddCommandLine(args);
+}
+
 builder.Services.Configure<WatchFolderOptions>(
     builder.Configuration.GetSection(WatchFolderOptions.SectionName));
 builder.Services.Configure<MockEosUtilityOptions>(
@@ -320,6 +332,7 @@ app.MapGet("/api/sessions/{folder}/{file}", (string folder, string file, Session
     {
         ".jpg" or ".jpeg" => "image/jpeg",
         ".png" => "image/png",
+        ".gif" => "image/gif",
         ".json" => "application/json",
         _ => "application/octet-stream",
     };

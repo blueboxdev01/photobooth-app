@@ -44,6 +44,79 @@ public sealed class SessionArchiveTests : IDisposable
             photo, DateTimeOffset.UtcNow);
     }
 
+    // --- the animation, added after the fact -------------------------------
+
+    /// <summary>
+    /// The compatibility claim. Every session.json already on disk was written
+    /// before animations existed, and the booth reads all of them on every
+    /// delivery poll -- so a record that cannot be deserialised is not a stale
+    /// file, it is the upload queue jamming on a folder it can no longer read.
+    /// </summary>
+    [Fact]
+    public void A_record_written_before_animations_existed_still_loads()
+    {
+        var record = Save();
+        var path = Path.Combine(_archive.FolderFor(record), "session.json");
+
+        // Written by hand with no "animation" key at all, exactly as an older
+        // build left it.
+        var legacy = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            token = record.Token,
+            folderName = record.FolderName,
+            createdUtc = record.CreatedUtc,
+            template = record.Template,
+            shotCount = record.ShotCount,
+            strip = record.Strip,
+            photos = record.Photos,
+            sourceFiles = record.SourceFiles,
+            uploadState = record.UploadState,
+        });
+
+        File.WriteAllText(path, legacy);
+
+        var loaded = _archive.All().SingleOrDefault(r => r.FolderName == record.FolderName);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(record.Strip, loaded!.Strip);
+        Assert.Null(loaded.Animation);
+    }
+
+    [Fact]
+    public void An_animation_is_filed_beside_the_strip_it_copies()
+    {
+        Directory.CreateDirectory(_root);
+        var photo = Path.Combine(_root, "src.jpg");
+        File.WriteAllBytes(photo, [0xFF, 0xD8, 0xFF, 0xD9]);
+
+        var gif = Path.Combine(_root, "src.gif");
+        File.WriteAllBytes(gif, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+
+        var template = new StripTemplate(
+            "fake", new TemplateCanvas(600, 1800), [new TemplateSlot(0, 0, 1, 0.3)]);
+
+        var record = _archive.Save(
+            "tokGIF", template,
+            [new CapturedPhoto(photo, "IMG_0001.JPG", 4, DateTimeOffset.UtcNow)],
+            photo, DateTimeOffset.UtcNow, gif);
+
+        Assert.Equal("strip.gif", record.Animation);
+        Assert.True(File.Exists(Path.Combine(_archive.FolderFor(record), "strip.gif")));
+    }
+
+    /// <summary>
+    /// A session where building the animation failed must archive perfectly
+    /// happily, because the strip and the photos are the deliverable.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_animation_archives_normally()
+    {
+        var record = Save();
+
+        Assert.Null(record.Animation);
+        Assert.False(File.Exists(Path.Combine(_archive.FolderFor(record), "strip.gif")));
+    }
+
     /// <summary>
     /// The one that was failing an upload for no reason: a write that collides
     /// with a reader used to throw a sharing violation, and the queue read that

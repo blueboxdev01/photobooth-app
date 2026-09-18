@@ -67,6 +67,14 @@ public sealed class BoothSettings
 
     // --- guest display ---
 
+    /// <summary>
+    /// Whether each session also gets a looping GIF of its strip.
+    ///
+    /// On unless someone turns it off. It costs about a second per session,
+    /// which is worth offering back to an operator facing a queue.
+    /// </summary>
+    public bool? AnimationEnabled { get; set; }
+
     /// <summary>Backdrop colour for the guest screen, so a booth can match an event.</summary>
     public string? DisplayBackgroundColor { get; set; }
 

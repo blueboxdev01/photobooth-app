@@ -24,6 +24,7 @@ public sealed class SessionCoordinator : IHostedService
     private readonly FileTemplateProvider _templates;
     private readonly SessionArchive _archive;
     private readonly UploadQueue _uploads;
+    private readonly SettingsStore _settings;
     private readonly ILogger<SessionCoordinator> _logger;
 
     /// <summary>
@@ -48,6 +49,7 @@ public sealed class SessionCoordinator : IHostedService
         FileTemplateProvider templates,
         SessionArchive archive,
         UploadQueue uploads,
+        SettingsStore settings,
         ILogger<SessionCoordinator> logger)
     {
         _camera = camera;
@@ -59,6 +61,7 @@ public sealed class SessionCoordinator : IHostedService
         _templates = templates;
         _archive = archive;
         _uploads = uploads;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -132,6 +135,7 @@ public sealed class SessionCoordinator : IHostedService
     private async Task ComposeAsync(SessionSnapshot snapshot)
     {
         var temp = Path.Combine(Path.GetTempPath(), $"pb-strip-{Guid.NewGuid():N}.jpg");
+        var tempAnimation = Path.Combine(Path.GetTempPath(), $"pb-anim-{Guid.NewGuid():N}.gif");
 
         try
         {
@@ -141,9 +145,12 @@ public sealed class SessionCoordinator : IHostedService
             await Task.Run(() => _compositor.Compose(
                 template, photos, _templates.Folder, temp));
 
+            var animation = await AnimateAsync(template, photos, tempAnimation);
+
             var record = _archive.Save(
                 _token, template, snapshot.Photos, temp,
-                snapshot.StartedUtc ?? _time.GetUtcNow());
+                snapshot.StartedUtc ?? _time.GetUtcNow(),
+                animation);
 
             // Queued, not awaited. The guest is standing there and the photos are
             // already safe on disk; a venue with no signal must cost them a QR
@@ -166,6 +173,42 @@ public sealed class SessionCoordinator : IHostedService
         finally
         {
             try { File.Delete(temp); } catch { /* best effort */ }
+            try { File.Delete(tempAnimation); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// The looping GIF of the strip, or null.
+    ///
+    /// <para>
+    /// Deliberately swallows its own failures. The strip and the photos are the
+    /// deliverable; the animation is a bonus on top, and it is not worth costing
+    /// a guest their session. A booth with a queue would rather hand over a
+    /// strip and no GIF than send someone back to the front of the line.
+    /// </para>
+    /// </summary>
+    private async Task<string?> AnimateAsync(
+        StripTemplate template, IReadOnlyList<string> photos, string outputPath)
+    {
+        // Read per session rather than cached, so switching it off in Settings
+        // takes effect on the very next guest.
+        if (_settings.Current.AnimationEnabled == false)
+        {
+            return null;
+        }
+
+        try
+        {
+            await Task.Run(() => _compositor.ComposeAnimation(
+                template, photos, _templates.Folder, outputPath));
+
+            return outputPath;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Could not build the animation; the session keeps its strip and photos.");
+            return null;
         }
     }
 

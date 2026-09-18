@@ -21,7 +21,8 @@ public sealed record SettingsUpdate(
     string? DisplayBackgroundColor,
     bool? ClearDisplayBackgroundImage,
     bool? DriveEnabled,
-    string? DriveFolderName);
+    string? DriveFolderName,
+    bool? AnimationEnabled);
 
 /// <summary>
 /// Everything an operator sets up per event: where the camera's photos arrive,
@@ -74,6 +75,14 @@ public static class SettingsEndpoints
                         p.Canvas.Width,
                         p.Canvas.Height,
                     }),
+                },
+
+                // An output concern rather than a delivery one: it is a moving
+                // copy of the strip, and exists whatever else is switched on.
+                animation = new
+                {
+                    // On unless turned off. It costs about a second per session.
+                    enabled = store.Current.AnimationEnabled ?? true,
                 },
 
                 display = new
@@ -173,6 +182,11 @@ public static class SettingsEndpoints
                 }
 
                 settings.NoPhotoTimeoutSeconds = timeout;
+            }
+
+            if (update.AnimationEnabled is { } animation)
+            {
+                settings.AnimationEnabled = animation;
             }
 
             if (update.DriveEnabled is { } driveEnabled)
